@@ -49,7 +49,9 @@ export function Overview() {
     if (!status)
         return <Spinner size="lg" />;
 
-    const { timer, storage, remote, manual_run: manual } = status;
+    const { timer, storage, manual_run: manual } = status;
+    const configured = status.vms.filter(v => v.in_config);
+    const localOnly = configured.filter(v => !v.config.REMOTE_TARGET);
     const usedPct = storage.total_bytes
         ? Math.round(((storage.total_bytes - storage.free_bytes) / storage.total_bytes) * 100)
         : null;
@@ -94,10 +96,10 @@ export function Overview() {
                     {" "}<code>systemctl start vm-replication.timer</code>.
                 </Alert>
             )}
-            {remote.configured === false && (
-                <Alert variant="info" isInline title="No remote target configured — copies stay on this host">
-                    Set <code>REMOTE_TARGET</code> on the Configuration tab to mirror chains
-                    to a remote host over rsync/ssh.
+            {configured.length > 0 && localOnly.length > 0 && (
+                <Alert variant="info" isInline title={`${localOnly.length} configuration(s) have no remote target — their copies stay on this host`}>
+                    {localOnly.map(v => v.name).join(", ")} — set a Remote target on the
+                    Configuration tab to mirror over rsync/ssh.
                 </Alert>
             )}
 
@@ -182,7 +184,7 @@ export function Overview() {
                     <FlexItem flex={{ default: "flex_1" }}>
                         <Card isFullHeight>
                             <CardHeader>
-                                <CardTitle>Storage &amp; remote</CardTitle>
+                                <CardTitle>Storage</CardTitle>
                             </CardHeader>
                             <CardBody>
                                 <DescriptionList isCompact>
@@ -213,11 +215,9 @@ export function Overview() {
                                 )}
                                 <DescriptionList isCompact style={{ marginTop: "1rem" }}>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Remote mirror</DescriptionListTerm>
+                                        <DescriptionListTerm>Configurations</DescriptionListTerm>
                                         <DescriptionListDescription>
-                                            {remote.configured
-                                                ? <Label color="blue">{remote.target}</Label>
-                                                : <Label color="grey">local only</Label>}
+                                            {configured.length}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                 </DescriptionList>
@@ -237,6 +237,7 @@ export function Overview() {
                                     <th>VM</th>
                                     <th>State</th>
                                     <th>In config</th>
+                                    <th>Remote</th>
                                     <th>Active chain</th>
                                     <th>Increments</th>
                                     <th>Chain size</th>
@@ -248,7 +249,7 @@ export function Overview() {
                             </thead>
                             <tbody>
                                 {status.vms.length === 0 && (
-                                    <tr><td colSpan={10}>No replicated VMs yet — add some on the Configuration tab.</td></tr>
+                                    <tr><td colSpan={11}>No replicated VMs yet — add some on the Configuration tab.</td></tr>
                                 )}
                                 {status.vms.map(vm => {
                                     const active = vm.chains.find(c => c.name === vm.active_chain);
@@ -259,6 +260,11 @@ export function Overview() {
                                             <td>{vm.in_config
                                                 ? <Label color="green">yes</Label>
                                                 : <Label color="orange">no</Label>}</td>
+                                            <td>
+                                                {vm.config?.REMOTE_TARGET
+                                                    ? <span title={vm.config.REMOTE_TARGET}>{vm.config.REMOTE_TARGET.split(":")[0]}</span>
+                                                    : <Label color="grey">local only</Label>}
+                                            </td>
                                             <td>
                                                 {active ? (
                                                     <Button variant="link" isInline

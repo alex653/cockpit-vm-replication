@@ -1,37 +1,53 @@
 #!/bin/bash
 # vm-replicate — инкрементальная репликация libvirt ВМ (KVM) на удалённый хост.
 #
-# Механизм:
-#   * ВМ запущена  -> virsh backup-begin (push-режим) + checkpoints:
-#     полная копия раз в FULL_EVERY_DAYS (или при переполнении MAX_INCS),
-#     между ними — инкременты только из изменившихся блоков. ВМ не останавливается.
-#   * ВМ выключена -> прямая rsync-копия qcow2 в cold-каталог (диск не используется,
-#     копия консистентна), чекпоинты сохраняются.
+# Модель конфигурации: одна конфигурация = одна ВМ со своими настройками.
+#   /etc/vm-replication/defaults.conf   глобальные значения (LIBVIRT_URI + шаблон)
+#   /etc/vm-replication/vms.d/<vm>.conf профиль одной ВМ (VM=... и её настройки)
+#   /etc/vm-replication/keys/<vm>       отдельный ssh-ключ конфигурации
+#
+# Механизм на каждую ВМ:
+#   * запущена  -> virsh backup-begin (push) + checkpoints: полная копия раз в
+#     FULL_EVERY_DAYS (или при MAX_INCS), между ними — инкременты изменённых
+#     блоков, ВМ не останавливается;
+#   * выключена -> прямая rsync-копия qcow2 в cold-каталог.
 # Результат: $STORAGE_ROOT/<vm>/<цепочка>/ = full-*.qcow2 + inc-*.qcow2
-#             + domain.xml + vm-restore; каталог зеркалится на REMOTE_TARGET
-#             (rsync --delete), если он задан в конфиге.
+#            + domain.xml + vm-restore; каталог зеркалится на REMOTE_TARGET
+#            (rsync --delete) с ssh-ключом SSH_KEY, если задан.
+#
+# Запуск:  vm-replicate [ИМЯ_ВМ ...]   — без аргументов все конфигурации,
+#                                        с аргументами — только перечисленные ВМ.
 #
 # Восстановление на приёмной стороне:  vm-restore <каталог-цепочки> [файл-результата]
 set -euo pipefail
 
-CONFIG=${CONFIG:-/etc/vm-replication/vms.conf}
-[ -r "$CONFIG" ] || { echo "нет конфига $CONFIG" >&2; exit 1; }
-# shellcheck source=/dev/null
-source "$CONFIG"
+CONFIG_DIR=${CONFIG_DIR:-/etc/vm-replication}
+DEFAULTS=$CONFIG_DIR/defaults.conf
+VMSD=$CONFIG_DIR/vms.d
+KEYS_DIR=$CONFIG_DIR/keys
+LEGACY=$CONFIG_DIR/vms.conf
+LEGACY_KEY=$CONFIG_DIR/id_ed25519
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
 die() { log "ОШИБКА: $*" >&2; exit 1; }
 
-: "${VMS:?в $CONFIG не задан VMS}"
-STORAGE_ROOT=${STORAGE_ROOT:-/mnt/dd/replication}
-FULL_EVERY_DAYS=${FULL_EVERY_DAYS:-7}
-MAX_INCS=${MAX_INCS:-48}
-KEEP_CHAINS=${KEEP_CHAINS:-2}
-BACKUP_TIMEOUT=${BACKUP_TIMEOUT:-14400}
-QEMU_IMG_CHECK=${QEMU_IMG_CHECK:-1}
-VIRSH=(virsh -c "${LIBVIRT_URI:-qemu:///system}")
-
 [ "$(id -u)" -eq 0 ] || die "запускать от root"
+
+# ---- значения по умолчанию (переопределяются defaults.conf и профилем ВМ) ----
+LIBVIRT_URI="qemu:///system"
+STORAGE_ROOT="/var/lib/libvirt/replication"
+FULL_EVERY_DAYS=7
+MAX_INCS=48
+KEEP_CHAINS=2
+BACKUP_TIMEOUT=14400
+QEMU_IMG_CHECK=1
+REMOTE_TARGET=""
+REMOTE_SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=30"
+SSH_KEY=""
+# shellcheck disable=SC1090
+[ -r "$DEFAULTS" ] && source "$DEFAULTS"
+# не даём defaults.conf переопределить конкретные поля профиля — они заданы ниже
+VIRSH=(virsh -c "$LIBVIRT_URI")
 
 # защита от наложения запусков (таймер + ручной запуск)
 exec 9>/run/lock/vm-replication.lock
@@ -41,6 +57,53 @@ TMP=$(mktemp -d /run/vm-replication.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 
 ts() { date +%Y%m%d-%H%M%S; }
+
+# ---- миграция устаревшего единого vms.conf в vms.d/ ----
+migrate_legacy() {
+    # только если vms.d пуст/нет и старый конфиг с VMS= на месте
+    [ -f "$LEGACY" ] || return 0
+    if [ -d "$VMSD" ] && compgen -G "$VMSD/*.conf" >/dev/null; then return 0; fi
+    local lvm="" ltarget="" lopts="" lroot=$STORAGE_ROOT lfull=$FULL_EVERY_DAYS \
+          lmax=$MAX_INCS lkeep=$KEEP_CHAINS ltimeout=$BACKUP_TIMEOUT lcheck=$QEMU_IMG_CHECK
+    # shellcheck disable=SC1090
+    ( source "$LEGACY" 2>/dev/null && {
+        echo "VMS_LIST=\"$VMS\""; echo "RT=\"$REMOTE_TARGET\""; echo "RO=\"$REMOTE_SSH_OPTS\"";
+        echo "SR=\"$STORAGE_ROOT\""; echo "FE=$FULL_EVERY_DAYS"; echo "MI=$MAX_INCS";
+        echo "KC=$KEEP_CHAINS"; echo "BT=$BACKUP_TIMEOUT"; echo "QC=$QEMU_IMG_CHECK";
+      } > "$TMP/legacy" ) || return 0
+    # shellcheck disable=SC1090,SC1091
+    source "$TMP/legacy"
+    lvm=$VMS_LIST; ltarget=$RT; lopts=$RO; lroot=$SR; lfull=$FE; lmax=$MI
+    lkeep=$KC; ltimeout=$BT; lcheck=$QC
+    [ -n "$lvm" ] || return 0
+    install -d -m 0755 "$VMSD" "$KEYS_DIR"
+    local v
+    for v in $lvm; do
+        {
+            echo "VM=$v"
+            echo "STORAGE_ROOT=\"$lroot\""
+            echo "REMOTE_TARGET=\"$ltarget\""
+            echo "REMOTE_SSH_OPTS=\"$lopts\""
+            echo "SSH_KEY=\"$KEYS_DIR/$v\""
+            echo "FULL_EVERY_DAYS=$lfull"
+            echo "MAX_INCS=$lmax"
+            echo "KEEP_CHAINS=$lkeep"
+            echo "BACKUP_TIMEOUT=$ltimeout"
+            echo "QEMU_IMG_CHECK=$lcheck"
+        } > "$VMSD/$v.conf"
+        # переносим общий ключ в ключ этой ВМ, чтобы авторизация не сломалась
+        if [ -f "$LEGACY_KEY" ]; then
+            cp -a "$LEGACY_KEY" "$KEYS_DIR/$v" 2>/dev/null || true
+            cp -a "$LEGACY_KEY.pub" "$KEYS_DIR/$v.pub" 2>/dev/null || true
+        fi
+        log "миграция: создан профиль $VMSD/$v.conf"
+    done
+    # defaults.conf из глобальных полей старого конфига
+    [ -r "$DEFAULTS" ] || printf 'LIBVIRT_URI="%s"\nSTORAGE_ROOT="%s"\n' \
+        "${LIBVIRT_URI:-qemu:///system}" "$lroot" > "$DEFAULTS"
+    mv "$LEGACY" "$LEGACY.pre-vmsd.bak"
+    log "миграция: старый vms.conf сохранён как vms.conf.pre-vmsd.bak"
+}
 
 disk_list() { # $1=vm -> построчно "<dev> <путь>" для обычных файловых дисков
     "${VIRSH[@]}" domblklist "$1" --details | awk '$1=="file" && $2=="disk" {print $3, $4}'
@@ -85,9 +148,9 @@ finish_chain_dir() { # $1=vm $2=каталог — метаданные рядо
 
 sync_vm() { # $1=vm; 0 = успех
     [ -n "${REMOTE_TARGET:-}" ] || return 0
-    local opts=${REMOTE_SSH_OPTS:-} key=/etc/vm-replication/id_ed25519
-    # выделенный ключ из Cockpit-интерфейса подхватывается автоматически
-    [ -r "$key" ] && opts="$opts -i $key -o IdentitiesOnly=yes"
+    local opts=${REMOTE_SSH_OPTS:-}
+    # отдельный ssh-ключ конфигурации подхватывается автоматически
+    [ -n "${SSH_KEY:-}" ] && [ -r "$SSH_KEY" ] && opts="$opts -i $SSH_KEY -o IdentitiesOnly=yes"
     log "  rsync -> $REMOTE_TARGET/$1/"
     rsync -aHS --delete --info=stats1 \
         -e "ssh $opts" \
@@ -200,24 +263,61 @@ replicate_offline() { # $1=vm — холодная копия (rsync) в cold-к
     fi
 }
 
-main() {
+# применяем профиль ВМ из файла и реплицируем её
+run_entry() { # $1=путь к vms.d/<vm>.conf
+    local entry=$1
+    # дефолты на запись (могли остаться от предыдущего профиля)
+    STORAGE_ROOT=${D_STORAGE_ROOT:-/var/lib/libvirt/replication}
+    FULL_EVERY_DAYS=${D_FULL_EVERY_DAYS:-7}
+    MAX_INCS=${D_MAX_INCS:-48}
+    KEEP_CHAINS=${D_KEEP_CHAINS:-2}
+    BACKUP_TIMEOUT=${D_BACKUP_TIMEOUT:-14400}
+    QEMU_IMG_CHECK=${D_QEMU_IMG_CHECK:-1}
+    REMOTE_TARGET=""; REMOTE_SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=30"; SSH_KEY=""
+    VM=""
+    # shellcheck disable=SC1090
+    source "$entry"
+    [ -n "$VM" ] || { log "  в $entry нет VM= — пропуск"; return 0; }
+    # фильтр по аргументам командной строки
+    if [ ${#ONLY[@]} -gt 0 ]; then
+        local want=0 a
+        for a in "${ONLY[@]}"; do [ "$a" = "$VM" ] && want=1; done
+        [ "$want" = 1 ] || return 0
+    fi
+    log "== $VM =="
+    if ! "${VIRSH[@]}" dominfo "$VM" >/dev/null 2>&1; then
+        log "  ВМ не найдена — пропуск"; return 0
+    fi
     install -d -m 0755 "$STORAGE_ROOT"
     chown libvirt-qemu:libvirt-qemu "$STORAGE_ROOT" 2>/dev/null || true
-    local vm state
-    for vm in $VMS; do
-        log "== $vm =="
-        if ! "${VIRSH[@]}" dominfo "$vm" >/dev/null 2>&1; then
-            log "  ВМ не найдена — пропуск"
-            continue
-        fi
-        state=$("${VIRSH[@]}" domstate "$vm" 2>/dev/null || echo unknown)
-        case "$state" in
-            running) replicate_running "$vm" ;;
-            "shut off" | paused) replicate_offline "$vm" ;;
-            *) log "  состояние '$state' — пропуск" ;;
-        esac
+    local state
+    state=$("${VIRSH[@]}" domstate "$VM" 2>/dev/null || echo unknown)
+    case "$state" in
+        running) replicate_running "$VM" ;;
+        "shut off" | paused) replicate_offline "$VM" ;;
+        *) log "  состояние '$state' — пропуск" ;;
+    esac
+}
+
+main() {
+    ONLY=("$@")
+    migrate_legacy
+    # снимок глобальных дефолтов из defaults.conf для сброса на каждый профиль
+    D_STORAGE_ROOT=$STORAGE_ROOT; D_FULL_EVERY_DAYS=$FULL_EVERY_DAYS
+    D_MAX_INCS=$MAX_INCS; D_KEEP_CHAINS=$KEEP_CHAINS
+    D_BACKUP_TIMEOUT=$BACKUP_TIMEOUT; D_QEMU_IMG_CHECK=$QEMU_IMG_CHECK
+    if [ ! -d "$VMSD" ]; then
+        log "нет каталога $VMSD — конфигураций репликации не задано"
+        return 0
+    fi
+    local entry found=0
+    for entry in "$VMSD"/*.conf; do
+        [ -e "$entry" ] || continue
+        found=1
+        run_entry "$entry"
     done
+    [ "$found" = 1 ] || log "нет конфигураций в $VMSD"
     log "готово"
 }
 
-main
+main "$@"

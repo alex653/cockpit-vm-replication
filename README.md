@@ -21,13 +21,15 @@ The heavy lifting is done by two root scripts that ship with this project:
 - **`vm-restore`** — flattens a chain (full + increments) back into a single
   qcow2 image (rebase + convert), without touching the chain files.
 
-A systemd timer runs the job hourly. The Cockpit UI gives you:
+A systemd timer runs the job hourly. Each **replication configuration is
+independent per VM**: its own remote target, ssh options, storage root,
+rotation policy and SSH key. The Cockpit UI gives you:
 
 | Tab | What you get |
 |---|---|
 | **Overview** | timer state and next run, storage usage, per-VM health (state, active chain, increment count, size, last backup, last result), run-now for all VMs or one VM |
 | **VMs & Chains** | every stored chain with full/increment sizes and times; delete a chain; jump to restore |
-| **Configuration** | edit `/etc/vm-replication/vms.conf` (VM list, remote target, ssh options, storage root, rotation policy) — comments in the file are preserved; a **Check access** button probes the entered remote target before saving: SSH key auth, rsync availability on the remote host and target path writability; when the remote host key is not yet trusted, an **Accept host key** button shows its fingerprints and adds it to `known_hosts` in one click; a **dedicated SSH key** can be generated, regenerated, deleted and copied right in the UI — while it exists it is used automatically for mirroring (`-i … -o IdentitiesOnly=yes`) |
+| **Configuration** | a table of per-VM replication configurations with **Add / Edit / Delete**; each row expands inline into a form for that VM — remote target, ssh options, storage root, rotation policy, and a **dedicated SSH key** (generate / copy / regenerate / delete) used automatically for that configuration; a **Check access** button probes the entered target before saving (SSH key auth, remote rsync, path writability), and **Accept host key** trusts an unknown server in one click. A separate **Global defaults** card edits `LIBVIRT_URI` and the seed values for new configurations |
 | **Restore** | flatten a chain into one qcow2 on this host, with size/free-space checks, plus copy-ready instructions for restoring on the remote side |
 | **Journal** | live `journalctl -t vm-replication` view with filter and auto-refresh |
 
@@ -35,8 +37,8 @@ A systemd timer runs the job hourly. The Cockpit UI gives you:
 
 | | |
 |---|---|
-| ![Chains](screenshots/chains.png) | ![Run now](screenshots/run-now.png) |
-| ![Configuration](screenshots/configuration.png) | ![Restore](screenshots/restore.png) |
+| ![Configurations](screenshots/configurations.png) | ![Run now](screenshots/run-now.png) |
+| ![Editor](screenshots/config-editor.png) | ![Restore](screenshots/restore.png) |
 
 ## Requirements
 
@@ -59,7 +61,10 @@ sudo make install
 1. UI → `/usr/share/cockpit/vm-replication/`
 2. privileged helper → `/usr/libexec/cockpit-vm-replication/vm-replication-helper`
 3. `vm-replicate` / `vm-restore` → `/usr/local/sbin/`
-4. config → `/etc/vm-replication/vms.conf` (existing config is never overwritten)
+4. config dir → `/etc/vm-replication/`: `defaults.conf` (global + seed values)
+   and empty `vms.d/` (one `<vm>.conf` per configuration) and `keys/`; a
+   pre-2.0 single `vms.conf` is migrated automatically into `vms.d/` (old file
+   kept as `vms.conf.pre-vmsd.bak`)
 5. systemd service + hourly timer (`vm-replication.timer`, enabled)
 6. a sudoers drop-in allowing members of `sudo`/`wheel` to run **only** the
    helper without a password:
@@ -67,7 +72,7 @@ sudo make install
    %sudo  ALL=(root) NOPASSWD: /usr/libexec/cockpit-vm-replication/vm-replication-helper
    %wheel ALL=(root) NOPASSWD: /usr/libexec/cockpit-vm-replication/vm-replication-helper
    ```
-7. an AppArmor rule for libvirt, if the storage root is outside
+7. an AppArmor rule for libvirt, for every storage root outside
    `/var/lib/libvirt/images`
 
 Then open `https://your-server:9090` → **VM Replication** in the menu.
@@ -76,30 +81,33 @@ Cockpit service a minute if it was running during install).
 
 ### Initial configuration
 
-1. Open **Configuration**, pick the VMs to replicate, optionally set
-   `REMOTE_TARGET` (`user@backup-host:/srv/vm-replication`) and adjust the
-   rotation policy. Non-standard ssh ports go into **SSH options**
-   (`-p 2222`). Press **Check access** to probe the target with the values
-   as entered — no need to save first.
-2. For remote mirroring prepare passwordless SSH as root. Either generate a
-   dedicated key right on the Configuration tab (**Generate key** → **Copy** →
-   append to `~/.ssh/authorized_keys` of the target user on the remote host —
-   it is picked up automatically), or use root's default key:
+1. Open **Configuration** → **Add configuration**, pick a VM, set its remote
+   target (`user@backup-host:/srv/vm-replication`), ssh options (non-standard
+   ports go here as `-p 2222`), storage root and rotation policy. Press
+   **Check access** to probe the target with the values as entered — no need
+   to save first. Repeat per VM; each configuration is independent.
+2. For remote mirroring prepare passwordless SSH. Either **Generate key** in
+   the configuration's form (→ **Copy** → append to `~/.ssh/authorized_keys`
+   of the target user on the remote host — that per-configuration key is then
+   used automatically), or use root's default key:
    `sudo ssh-copy-id -p 2222 user@backup-host`. If **Check access** reports
    `Host key verification failed`, press **Accept host key** to review the
    fingerprints and trust the server in one click — no terminal needed.
-3. Press **Run now** and watch the Journal tab.
+3. Press **Run now** (all configurations) or the per-row **Run** and watch the
+   Journal tab.
 
 ## How the replication works
 
 ```
-VM (running) ──virsh backup-begin (push)──▶ /mnt/.../vm/chain/
-   │                                          full-20261026-190808/*.qcow2
+VM (running) ──virsh backup-begin (push)──▶ <STORAGE_ROOT>/<vm>/<chain>/
+   │                                          full-<chain>/*.qcow2
    └── checkpoint c-<chain>-<ts>              inc-<ts>-vda.qcow2  (hourly)
                                               domain.xml, vm-restore
-                    rsync --delete over ssh ─▶ user@remote:/srv/vm-replication/vm/chain/
+        rsync --delete over ssh, per-config key (<keys>/<vm>) ─▶ user@remote:<path>/<vm>/<chain>/
 ```
 
+- Configuration files: `defaults.conf` (global) + one `vms.d/<vm>.conf` per VM
+  + `keys/<vm>` per-VM SSH key, all under `/etc/vm-replication/`.
 - A chain rotates to a new full copy after `FULL_EVERY_DAYS` days or
   `MAX_INCS` increments; the newest `KEEP_CHAINS` chains are kept.
 - Crash-consistent by default; install `qemu-guest-agent` in the guest for
@@ -115,12 +123,13 @@ VM (running) ──virsh backup-begin (push)──▶ /mnt/.../vm/chain/
 ## Security model
 
 The browser never gets a root shell. The UI talks to one Python helper with a
-fixed subcommand set (`status`, `run`, `config-set`, `restore-start`, …).
-The helper is the only thing the sudoers rule allows; it validates every
-argument, confines chain operations to `STORAGE_ROOT`, refuses path escapes,
-and never spawns a shell with user input. Editing the config is a whitelisted,
-per-key merge that preserves comments. Alternative without sudo: the UI falls
-back to `pkexec` (polkit) if passwordless sudo for the helper is absent.
+fixed subcommand set (`status`, `entry-save`, `key-generate`, `remote-check`,
+`run`, `restore-start`, …). The helper is the only thing the sudoers rule
+allows; it validates every argument, confines chain operations to each
+configuration's `STORAGE_ROOT`, refuses path escapes, and never spawns a shell
+with user input. Configuration files are written from a whitelisted key set.
+Alternative without sudo: the UI falls back to `pkexec` (polkit) if
+passwordless sudo for the helper is absent.
 
 ## Uninstall
 

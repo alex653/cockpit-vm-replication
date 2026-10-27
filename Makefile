@@ -22,7 +22,7 @@ node_modules: package.json
 
 # ---------------------------------------------------------------------------
 
-install: check-root build install-app install-helper install-scripts install-config install-sudoers install-units
+install: check-root build install-app install-helper install-scripts install-config install-migrate install-sudoers install-units
 	@echo
 	@echo "Installed. Open https://$(shell hostname -f 2>/dev/null || echo localhost):9090 and look for 'VM Replication' in the menu."
 
@@ -41,12 +41,20 @@ install-scripts:
 	install -D -m 0755 scripts/vm-restore $(BINDIR)/vm-restore
 
 install-config:
-	install -D -m 0644 scripts/vms.conf.example $(CONFDIR)/vms.conf.new
-	@if [ ! -f $(CONFDIR)/vms.conf ]; then \
-	    echo "Installing new config $(CONFDIR)/vms.conf"; \
-	    install -m 0644 scripts/vms.conf.example $(CONFDIR)/vms.conf; \
+	install -d -m 0755 $(CONFDIR)/vms.d $(CONFDIR)/keys
+	@if [ ! -f $(CONFDIR)/defaults.conf ]; then \
+	    echo "Installing new config $(CONFDIR)/defaults.conf"; \
+	    install -m 0644 scripts/defaults.conf.example $(CONFDIR)/defaults.conf; \
 	else \
-	    echo "Keeping existing $(CONFDIR)/vms.conf (example saved as vms.conf.new)"; \
+	    echo "Keeping existing $(CONFDIR)/defaults.conf"; \
+	fi
+
+# Convert a pre-2.0 single vms.conf into per-VM vms.d/<vm>.conf files.
+install-migrate: install-scripts
+	@if [ -f $(CONFDIR)/vms.conf ] && ! ls $(CONFDIR)/vms.d/*.conf >/dev/null 2>&1; then \
+	    $(BINDIR)/vm-replicate __migrate_only__ >/dev/null 2>&1 \
+	        && echo "Migrated $(CONFDIR)/vms.conf -> $(CONFDIR)/vms.d/" \
+	        || echo "Migration skipped (no VMS= in vms.conf)"; \
 	fi
 
 # Allow members of 'sudo'/'wheel' to run only the helper without a password.
@@ -63,7 +71,9 @@ install-units:
 	install -D -m 0644 scripts/vm-replication.timer $(UNITDIR)/vm-replication.timer
 	systemctl daemon-reload
 	systemctl enable --now vm-replication.timer 2>/dev/null || true
-	@$(MAKE) --no-print-directory install-apparmor STORAGE_ROOT=$$(grep -E '^STORAGE_ROOT=' $(CONFDIR)/vms.conf 2>/dev/null | cut -d= -f2 | tr -d '"'); 
+	@for r in $$( { grep -hE '^STORAGE_ROOT=' $(CONFDIR)/defaults.conf $(CONFDIR)/vms.d/*.conf 2>/dev/null | cut -d= -f2 | tr -d '"'; } | sort -u ); do \
+	    $(MAKE) --no-print-directory install-apparmor STORAGE_ROOT="$$r"; \
+	done
 
 # libvirt's AppArmor profile only allows writing to default paths; teach it
 # about the replication storage. No-op when AppArmor is not in use.

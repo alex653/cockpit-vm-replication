@@ -11,29 +11,36 @@ exits non-zero.
 The helper is meant to be run as root (via `sudo -n` granted to the
 helper path only, or via pkexec). It deliberately does NOT accept
 arbitrary commands: every argument is validated, paths are confined to
-STORAGE_ROOT, and external programs are spawned with argument lists
-(never through a shell).
+the configured storage roots, and external programs are spawned with
+argument lists (never through a shell).
+
+Configuration model: one replication configuration per VM.
+    /etc/vm-replication/defaults.conf   global LIBVIRT_URI + seed values
+    /etc/vm-replication/vms.d/<vm>.conf one profile (VM + its settings)
+    /etc/vm-replication/keys/<vm>       that profile's ssh key pair
 
 Subcommands:
-    status                        full JSON snapshot for the dashboard
-    config-get                    parsed /etc/vm-replication/vms.conf
-    config-set                    merge JSON (stdin) into the config
-    remote-check                  probe SSH access to a remote target (JSON
-                                  on stdin: {"remote_target", "ssh_opts"} —
-                                  form values, they need not be saved)
-    hostkey-scan                  list remote host keys + fingerprints (JSON
-                                  on stdin, same shape as remote-check)
-    hostkey-accept                append those keys to root's known_hosts
-    key-get                       info about the dedicated ssh key
-    key-generate                  create (or regenerate) the key pair
-    key-delete                    remove the key pair
-    run [--vm NAME]               start vm-replicate detached (one VM or all)
-    run-status                    is a manual run active + its log tail
+    status                       full JSON snapshot for the dashboard
+    defaults-get                 parsed defaults.conf
+    defaults-set                 merge JSON (stdin) into defaults.conf
+    entry-list                   list configured VM names
+    entry-get VM                 one entry (merged with defaults)
+    entry-save                   create/overwrite one entry (JSON on stdin)
+    entry-delete VM              remove an entry's config file (keeps chains)
+    key-get VM                   info about a profile's ssh key
+    key-generate VM              create/regenerate that profile's key pair
+    key-delete VM                remove that profile's key pair
+    remote-check VM              probe the entry's remote access (JSON on
+                                 stdin may override {remote_target, ssh_opts})
+    hostkey-scan VM              list remote host keys + fingerprints
+    hostkey-accept VM            append those keys to root's known_hosts
+    run [--vm NAME]              start vm-replicate detached (one VM or all)
+    run-status                   is a manual run active + its log tail
     restore-start VM CHAIN TARGET assemble chain into TARGET (detached)
-    restore-status                restore job status + log tail
-    chain-delete VM CHAIN         delete one stored chain
-    timer ACTION                  start|stop|restart|enable|disable the timer
-    logs [N]                      last N journal lines (default 300)
+    restore-status               restore job status + log tail
+    chain-delete VM CHAIN        delete one stored chain
+    timer ACTION                 start|stop|restart|enable|disable the timer
+    logs [N]                     last N journal lines (default 300)
 """
 
 import fcntl
@@ -50,11 +57,16 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.3.0"
+__version__ = "2.0.0"
 
-CONFIG_PATH = Path("/etc/vm-replication/vms.conf")
+CONFIG_DIR = Path("/etc/vm-replication")
+DEFAULTS_PATH = CONFIG_DIR / "defaults.conf"
+VMSD = CONFIG_DIR / "vms.d"
+KEYS_DIR = CONFIG_DIR / "keys"
+LEGACY_PATH = CONFIG_DIR / "vms.conf"
+
 RUN_DIR = Path("/run")
-LOCK_FILE = Path("/run/lock/vm-replication.lock")
+LOCK_FILE = RUN_DIR / "lock" / "vm-replication.lock"
 MANUAL_PID = RUN_DIR / "vm-replication-manual.pid"
 MANUAL_LOG = RUN_DIR / "vm-replication-manual.log"
 RESTORE_PID = RUN_DIR / "vm-replication-restore.pid"
@@ -64,26 +76,39 @@ RESTORE = shutil.which("vm-restore") or "/usr/local/sbin/vm-restore"
 
 VM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
 CHAIN_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+TARGET_RE = re.compile(r"^([^@\s]{1,128})@([^:\s]{1,253}):(/.{0,499}|.{1,500})$")
+HOST_RE = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
 
-# key: (type, validator) — the only keys config-set is allowed to touch
-CONFIG_KEYS = {
-    "VMS": ("space-list", None),
-    "REMOTE_TARGET": ("str", lambda v: v == "" or re.match(r"^[^@\s]+@[^:\s]+:.+$", v)),
+# key: (type, validator) — the only keys an entry may set
+ENTRY_KEYS = {
+    "VM": ("vm", None),
+    "REMOTE_TARGET": ("str", lambda v: v == "" or TARGET_RE.match(v)),
     "REMOTE_SSH_OPTS": ("str", None),
+    "SSH_KEY": ("abs-path", None),
     "STORAGE_ROOT": ("abs-path", None),
     "FULL_EVERY_DAYS": ("int", (1, 3650)),
     "MAX_INCS": ("int", (1, 10000)),
     "KEEP_CHAINS": ("int", (1, 100)),
     "BACKUP_TIMEOUT": ("int", (60, 604800)),
     "QEMU_IMG_CHECK": ("int", (0, 1)),
+}
+# keys defaults.conf may hold (global + seed values for new profiles)
+DEFAULTS_KEYS = {
     "LIBVIRT_URI": ("str", None),
+    "STORAGE_ROOT": ("abs-path", None),
+    "FULL_EVERY_DAYS": ("int", (1, 3650)),
+    "MAX_INCS": ("int", (1, 10000)),
+    "KEEP_CHAINS": ("int", (1, 100)),
+    "BACKUP_TIMEOUT": ("int", (60, 604800)),
+    "QEMU_IMG_CHECK": ("int", (0, 1)),
 }
 
 INT_DEFAULTS = {"FULL_EVERY_DAYS": 7, "MAX_INCS": 48, "KEEP_CHAINS": 2,
                 "BACKUP_TIMEOUT": 14400, "QEMU_IMG_CHECK": 1}
-STR_DEFAULTS = {"VMS": "", "REMOTE_TARGET": "", "REMOTE_SSH_OPTS":
-                "-o BatchMode=yes -o ConnectTimeout=30",
-                "STORAGE_ROOT": "/mnt/dd/replication", "LIBVIRT_URI": "qemu:///system"}
+STR_DEFAULTS = {"LIBVIRT_URI": "qemu:///system", "STORAGE_ROOT":
+                "/var/lib/libvirt/replication", "REMOTE_TARGET": "",
+                "REMOTE_SSH_OPTS": "-o BatchMode=yes -o ConnectTimeout=30",
+                "SSH_KEY": ""}
 
 
 def fail(msg):
@@ -106,13 +131,16 @@ def run_cmd_in(argv, stdin_text, timeout=15):
                           text=True, timeout=timeout)
 
 
-# ---------------------------------------------------------------- config ---
+# --------------------------------------------------------------- parsing ---
 
-def parse_config(path=CONFIG_PATH):
+def parse_kv(path):
+    """Parse a shell-ish KEY=VALUE file into a dict."""
     cfg = {}
-    if not path.is_file():
+    try:
+        text = path.read_text()
+    except OSError:
         return cfg
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -126,27 +154,104 @@ def parse_config(path=CONFIG_PATH):
     return cfg
 
 
-def cfg_get(cfg, key):
+def get_val(cfg, key):
     return cfg.get(key, INT_DEFAULTS.get(key, STR_DEFAULTS.get(key, "")))
 
 
-def storage_root(cfg):
-    sr = cfg_get(cfg, "STORAGE_ROOT") or "/mnt/dd/replication"
-    return os.path.normpath(sr)
+def read_defaults():
+    return parse_kv(DEFAULTS_PATH)
+
+
+def entry_path(vm):
+    return VMSD / f"{vm}.conf"
+
+
+def list_entry_vms():
+    if not VMSD.is_dir():
+        return []
+    vms = []
+    for p in sorted(VMSD.glob("*.conf")):
+        vm = parse_kv(p).get("VM") or p.stem
+        if vm:
+            vms.append(vm)
+    return vms
+
+
+def read_entry(vm):
+    """Entry settings merged over defaults (for display)."""
+    d = read_defaults()
+    e = parse_kv(entry_path(vm))
+    merged = {k: get_val({**d, **e}, k) for k in ENTRY_KEYS}
+    merged["VM"] = vm
+    return merged
+
+
+def entry_root(cfg):
+    return os.path.normpath(get_val(cfg, "STORAGE_ROOT") or
+                            STR_DEFAULTS["STORAGE_ROOT"])
+
+
+def key_path(vm):
+    return KEYS_DIR / vm
+
+
+# ------------------------------------------------------------- validate ---
+
+def validate_value(key, raw, schema):
+    kind = schema[key][0]
+    if kind == "vm":
+        v = str(raw or "").strip()
+        if not VM_RE.match(v):
+            fail(f"{key}: invalid VM name {v!r}")
+        return v
+    if kind == "int":
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            fail(f"{key}: expected an integer, got {raw!r}")
+        lo, hi = schema[key][1]
+        if not lo <= v <= hi:
+            fail(f"{key}: {v} is out of range {lo}..{hi}")
+        return str(v)
+    if kind == "abs-path":
+        v = str(raw or "").strip()
+        if v and not v.startswith("/"):
+            fail(f"{key}: must be an absolute path")
+        if any(c in v for c in "\n\r\"'"):
+            fail(f"{key}: invalid characters")
+        return v
+    v = str(raw if raw is not None else "").strip()
+    if "\n" in v or "\r" in v:
+        fail(f"{key}: newlines are not allowed")
+    validator = schema[key][1]
+    if validator and not validator(v):
+        fail(f"{key}: invalid value {v!r} (expected user@host:/path)")
+    return v
+
+
+def write_kv_file(path, values, header, order):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [header, ""]
+    for k in order:
+        if k in values:
+            lines.append(f'{k}="{values[k]}"')
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix="." + path.name + ".")
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines).rstrip("\n") + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
 
 
 # ----------------------------------------------------------------- virsh ---
 
 def virsh(cfg, *args, timeout=30):
-    uri = cfg_get(cfg, "LIBVIRT_URI") or "qemu:///system"
+    uri = get_val(cfg, "LIBVIRT_URI") or "qemu:///system"
     return run_cmd(["virsh", "-c", uri, *args], timeout=timeout)
 
 
 def list_all_vms(cfg):
     r = virsh(cfg, "list", "--all", "--name")
-    if r.returncode != 0:
-        return []
-    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r.returncode == 0 else []
 
 
 def vm_state(cfg, vm):
@@ -156,30 +261,16 @@ def vm_state(cfg, vm):
 
 def vm_checkpoints(cfg, vm):
     r = virsh(cfg, "checkpoint-list", vm, "--name")
-    if r.returncode != 0:
-        return []
-    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r.returncode == 0 else []
 
 
 # ---------------------------------------------------------------- status ---
-
-def dir_size(path):
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for f in files:
-            try:
-                total += os.lstat(os.path.join(root, f)).st_size
-            except OSError:
-                pass
-    return total
-
 
 def iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
 def scan_chains(root, vm):
-    """List chain directories of a VM with per-chain statistics."""
     chains = []
     vm_dir = os.path.join(root, vm)
     if not os.path.isdir(vm_dir):
@@ -188,8 +279,7 @@ def scan_chains(root, vm):
         d = os.path.join(vm_dir, entry)
         if not os.path.isdir(d):
             continue
-        fulls, incs = [], 0
-        inc_bytes = 0
+        fulls, incs, inc_bytes = [], 0, 0
         for f in os.listdir(d):
             fp = os.path.join(d, f)
             try:
@@ -208,8 +298,7 @@ def scan_chains(root, vm):
         if incs:
             newest_inc = max(
                 (os.lstat(os.path.join(d, f)).st_mtime for f in os.listdir(d)
-                 if f.startswith("inc-") and f.endswith(".qcow2")),
-                default=0)
+                 if f.startswith("inc-") and f.endswith(".qcow2")), default=0)
             times.append(iso(newest_inc))
         chains.append({
             "name": entry,
@@ -228,9 +317,7 @@ def scan_chains(root, vm):
 
 
 def parse_journal(lines):
-    """Extract recent runs from 'vm-replication' journal lines."""
-    runs = []
-    cur = None
+    runs, cur = [], None
     marker = re.compile(r"^(\d{4}-\d{2}-\d{2}[T ][0-9:]+).*== (\S+) ==")
     for line in lines:
         m = marker.match(line)
@@ -265,8 +352,7 @@ def journalctl(cfg, lines=300):
 
 def timer_info():
     def show(unit, props):
-        r = run_cmd(["systemctl", "show", unit] +
-                    [f"--property={p}" for p in props])
+        r = run_cmd(["systemctl", "show", unit] + [f"--property={p}" for p in props])
         res = {}
         if r.returncode == 0:
             for line in r.stdout.splitlines():
@@ -277,8 +363,7 @@ def timer_info():
 
     t = show("vm-replication.timer", ["ActiveState", "UnitFileState",
                                       "NextElapseUSecRealtime", "LastTriggerUSec"])
-    s = show("vm-replication.service", ["Result", "ExecMainStatus",
-                                        "ActiveEnterTimestamp"])
+    s = show("vm-replication.service", ["Result", "ExecMainStatus", "ActiveEnterTimestamp"])
     return {
         "installed": bool(t),
         "active": t.get("ActiveState") == "active",
@@ -308,7 +393,6 @@ def pid_alive(pidfile):
 
 
 def replication_busy():
-    """True when vm-replicate holds its lock (timer or manual run)."""
     try:
         fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
         try:
@@ -321,233 +405,197 @@ def replication_busy():
         return True
 
 
+def key_info(vm):
+    kp = key_path(vm)
+    pub = Path(str(kp) + ".pub")
+    exists = kp.is_file() and pub.is_file()
+    info = {"path": str(kp), "exists": exists, "used_automatically": exists}
+    if exists:
+        info["public_key"] = pub.read_text().strip()
+        r = run_cmd(["ssh-keygen", "-lf", str(pub)])
+        info["fingerprint"] = r.stdout.strip() if r.returncode == 0 else None
+        info["generated_at"] = iso(kp.stat().st_mtime)
+    return info
+
+
+def build_entry(vm, defaults, all_vms, last_by_vm):
+    cfg = read_entry(vm)
+    root = entry_root(cfg)
+    chains = scan_chains(root, vm)
+    active = next((c["name"] for c in chains if c["kind"] == "chain" and c["full_files"]), None)
+    state = vm_state(defaults, vm) if vm in all_vms else "missing"
+    cps = vm_checkpoints(defaults, vm) if state == "running" else []
+    full_age_days, inc_count = None, 0
+    if active:
+        act = next(c for c in chains if c["name"] == active)
+        full_mtime = max((f["mtime"] for f in act["full_files"]), default=None)
+        if full_mtime:
+            dt = datetime.fromisoformat(full_mtime)
+            full_age_days = (datetime.now(dt.tzinfo) - dt).days
+        inc_count = act["inc_count"]
+    next_action = None
+    if state == "running":
+        try:
+            if (full_age_days is not None and
+                    full_age_days >= int(get_val(cfg, "FULL_EVERY_DAYS"))) or \
+                    inc_count >= int(get_val(cfg, "MAX_INCS")):
+                next_action = "full"
+            else:
+                next_action = "increment"
+        except (TypeError, ValueError):
+            next_action = None
+    st = os.statvfs(root) if os.path.isdir(root) else None
+    return {
+        "vm": vm, "name": vm,
+        "in_config": entry_path(vm).is_file(),
+        "config": cfg,
+        "key": key_info(vm),
+        "state": state,
+        "chains": chains,
+        "active_chain": active,
+        "checkpoints": cps,
+        "full_age_days": full_age_days,
+        "next_action": next_action,
+        "last_run": last_by_vm.get(vm),
+        "storage": {"root": root, "exists": st is not None,
+                    "free_bytes": st.f_bavail * st.f_frsize if st else None,
+                    "total_bytes": st.f_blocks * st.f_frsize if st else None},
+    }
+
+
 def cmd_status():
-    cfg = parse_config()
-    root = storage_root(cfg)
-    all_vms = list_all_vms(cfg)
+    defaults = read_defaults()
+    all_vms = list_all_vms(defaults)
+    entry_vms = list_entry_vms()
 
-    cfg_vms = cfg_get(cfg, "VMS").split()
-    disk_vms = []
-    if os.path.isdir(root):
-        disk_vms = [d for d in os.listdir(root)
-                    if os.path.isdir(os.path.join(root, d))]
-    vms = list(dict.fromkeys(cfg_vms + disk_vms))
+    # VMs that have chains on disk but no entry (orphaned) — scan default root
+    disk_vms = set()
+    for root in {entry_root(read_entry(v)) for v in entry_vms} | {entry_root(defaults)}:
+        if os.path.isdir(root):
+            try:
+                disk_vms |= {d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))}
+            except OSError:
+                pass
+    vms = list(dict.fromkeys(entry_vms + sorted(disk_vms - set(entry_vms))))
 
-    runs = parse_journal(journalctl(cfg, 500))
+    runs = parse_journal(journalctl(defaults, 500))
     last_by_vm = {}
     for run in runs:
         last_by_vm[run["vm"]] = run
 
-    vms_json = []
-    for vm in vms:
-        chains = scan_chains(root, vm)
-        active = next((c["name"] for c in chains
-                       if c["kind"] == "chain" and c["full_files"]), None)
-        state = vm_state(cfg, vm) if vm in all_vms else "missing"
-        cps = vm_checkpoints(cfg, vm) if state == "running" else []
-        full_age_days = None
-        inc_count = 0
-        if active:
-            act = next(c for c in chains if c["name"] == active)
-            full_mtime = max((f["mtime"] for f in act["full_files"]), default=None)
-            if full_mtime:
-                dt = datetime.fromisoformat(full_mtime)
-                full_age_days = (datetime.now(dt.tzinfo) - dt).days
-            inc_count = act["inc_count"]
-        next_action = None
-        if state == "running":
-            try:
-                if (full_age_days is not None and
-                        full_age_days >= int(cfg_get(cfg, "FULL_EVERY_DAYS"))) or \
-                        inc_count >= int(cfg_get(cfg, "MAX_INCS")):
-                    next_action = "full"
-                else:
-                    next_action = "increment"
-            except (TypeError, ValueError):
-                next_action = None
-        vms_json.append({
-            "name": vm,
-            "in_config": vm in cfg_vms,
-            "state": state,
-            "chains": chains,
-            "active_chain": active,
-            "checkpoints": cps,
-            "full_age_days": full_age_days,
-            "next_action": next_action,
-            "last_run": last_by_vm.get(vm),
-        })
+    entries = [build_entry(vm, defaults, all_vms, last_by_vm) for vm in vms]
 
-    st = os.statvfs(root) if os.path.isdir(root) else None
+    droot = entry_root(defaults)
+    dst = os.statvfs(droot) if os.path.isdir(droot) else None
     busy = replication_busy()
-    manual_pid = pid_alive(MANUAL_PID)
-    restore_pid = pid_alive(RESTORE_PID)
-
     out({
         "helper_version": __version__,
         "hostname": socket.gethostname(),
         "now": datetime.now().astimezone().isoformat(timespec="seconds"),
         "timer": timer_info(),
-        "storage": {
-            "root": root,
-            "exists": st is not None,
-            "free_bytes": st.f_bavail * st.f_frsize if st else None,
-            "total_bytes": st.f_blocks * st.f_frsize if st else None,
-        },
-        "remote": {
-            "target": cfg_get(cfg, "REMOTE_TARGET"),
-            "ssh_opts": cfg_get(cfg, "REMOTE_SSH_OPTS"),
-            "configured": bool(cfg_get(cfg, "REMOTE_TARGET")),
-        },
-        "config": cfg,
-        "vms": vms_json,
+        "defaults": defaults,
+        "storage": {"root": droot, "exists": dst is not None,
+                    "free_bytes": dst.f_bavail * dst.f_frsize if dst else None,
+                    "total_bytes": dst.f_blocks * dst.f_frsize if dst else None},
+        "entries": entries,
+        "vms": entries,
         "all_vms": all_vms,
         "runs": runs[-15:],
         "busy": busy,
-        "manual_run": {
-            "running": busy or manual_pid is not None,
-            "log_tail": tail_file(MANUAL_LOG),
-        },
-        "restore": {
-            "running": restore_pid is not None,
-            "log_tail": tail_file(RESTORE_LOG),
-        },
-        "scripts": {
-            "vm-replicate": os.path.exists(REPLICATE),
-            "vm-restore": os.path.exists(RESTORE),
-        },
+        "manual_run": {"running": busy or pid_alive(MANUAL_PID) is not None,
+                       "log_tail": tail_file(MANUAL_LOG)},
+        "restore": {"running": pid_alive(RESTORE_PID) is not None,
+                    "log_tail": tail_file(RESTORE_LOG)},
+        "scripts": {"vm-replicate": os.path.exists(REPLICATE),
+                    "vm-restore": os.path.exists(RESTORE)},
     })
 
 
-# ----------------------------------------------------------- config-set ---
+# ------------------------------------------------------- defaults & entry ---
 
-def validate_value(key, raw):
-    kind = CONFIG_KEYS[key][0]
-    if kind == "int":
-        try:
-            v = int(raw)
-        except (TypeError, ValueError):
-            fail(f"{key}: expected an integer, got {raw!r}")
-        lo, hi = CONFIG_KEYS[key][1]
-        if not lo <= v <= hi:
-            fail(f"{key}: {v} is out of range {lo}..{hi}")
-        return str(v)
-    if kind == "space-list":
-        vms = [str(v).strip() for v in raw] if isinstance(raw, list) \
-            else str(raw or "").split()
-        for v in vms:
-            if not VM_RE.match(v):
-                fail(f"VMS: invalid VM name {v!r}")
-        return " ".join(vms)
-    if kind == "abs-path":
-        v = str(raw or "").strip()
-        if not v.startswith("/"):
-            fail(f"{key}: must be an absolute path")
-        if any(c in v for c in "\n\r\"'"):
-            fail(f"{key}: invalid characters")
-        return v
-    v = str(raw if raw is not None else "").strip()
-    if "\n" in v or "\r" in v:
-        fail(f"{key}: newlines are not allowed")
-    validator = CONFIG_KEYS[key][1]
-    if validator and not validator(v):
-        fail(f"{key}: invalid value {v!r} (expected user@host:/path)")
-    return v
-
-
-def cmd_config_set(payload):
+def cmd_defaults_set(payload):
     if not isinstance(payload, dict):
         fail("expected a JSON object on stdin")
-    unknown = set(payload) - set(CONFIG_KEYS)
+    unknown = set(payload) - set(DEFAULTS_KEYS)
     if unknown:
-        fail(f"unknown config keys: {', '.join(sorted(unknown))}")
-    new_values = {k: validate_value(k, v) for k, v in payload.items()}
+        fail(f"unknown defaults keys: {', '.join(sorted(unknown))}")
+    cur = read_defaults()
+    merged = {**cur, **{k: validate_value(k, v, DEFAULTS_KEYS) for k, v in payload.items()}}
+    write_kv_file(DEFAULTS_PATH, merged,
+                  "# Глобальные значения репликации (LIBVIRT_URI + шаблон для новых конфигураций)",
+                  list(DEFAULTS_KEYS))
+    out({"ok": True, "defaults": read_defaults()})
 
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    original = CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.is_file() else [
-        "# Конфигурация репликации libvirt ВМ; читается скриптом vm-replicate", ""]
 
-    seen = set()
-    result = []
-    for line in original:
-        m = re.match(r"^([A-Z_]+)=", line)
-        if m and m.group(1) in new_values:
-            key = m.group(1)
-            result.append(f'{key}="{new_values[key]}"')
-            seen.add(key)
-        else:
-            result.append(line)
-    for key in new_values:
-        if key not in seen:
-            result.append(f'{key}="{new_values[key]}"')
+def cmd_entry_save(payload):
+    if not isinstance(payload, dict):
+        fail("expected a JSON object on stdin")
+    vm = str(payload.get("vm") or "").strip()
+    if not VM_RE.match(vm):
+        fail(f"invalid VM name {vm!r}")
+    field_map = {"remote_target": "REMOTE_TARGET", "ssh_opts": "REMOTE_SSH_OPTS",
+                 "ssh_key": "SSH_KEY", "storage_root": "STORAGE_ROOT",
+                 "full_every_days": "FULL_EVERY_DAYS", "max_incs": "MAX_INCS",
+                 "keep_chains": "KEEP_CHAINS", "backup_timeout": "BACKUP_TIMEOUT",
+                 "qemu_img_check": "QEMU_IMG_CHECK"}
+    values = {"VM": vm}
+    for jkey, ckey in field_map.items():
+        if jkey in payload:
+            values[ckey] = validate_value(ckey, payload[jkey], ENTRY_KEYS)
+    # ensure a key path for this profile (file may not exist yet — that's fine)
+    if not values.get("SSH_KEY"):
+        values["SSH_KEY"] = str(key_path(vm))
+    defaults = read_defaults()
+    for k in ("STORAGE_ROOT", "FULL_EVERY_DAYS", "MAX_INCS", "KEEP_CHAINS",
+              "BACKUP_TIMEOUT", "QEMU_IMG_CHECK"):
+        values.setdefault(k, get_val(defaults, k))
+    values.setdefault("REMOTE_TARGET", "")
+    values.setdefault("REMOTE_SSH_OPTS", get_val(defaults, "REMOTE_SSH_OPTS")
+                      if "REMOTE_SSH_OPTS" in defaults else STR_DEFAULTS["REMOTE_SSH_OPTS"])
+    write_kv_file(entry_path(vm), values,
+                  f"# Конфигурация репликации ВМ {vm}", list(ENTRY_KEYS))
+    out({"ok": True, "entry": read_entry(vm), "key": key_info(vm)})
 
-    fd, tmp = tempfile.mkstemp(dir=str(CONFIG_PATH.parent), prefix=".vms.conf.")
-    with os.fdopen(fd, "w") as f:
-        f.write("\n".join(result).rstrip("\n") + "\n")
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, CONFIG_PATH)
-    out({"ok": True, "config": parse_config()})
+
+def cmd_entry_delete(vm):
+    if not VM_RE.match(vm):
+        fail(f"invalid VM name {vm!r}")
+    p = entry_path(vm)
+    if not p.is_file():
+        fail(f"no configuration for {vm!r}")
+    os.remove(p)
+    out({"ok": True, "removed": str(p),
+         "note": "chains and the ssh key were kept on disk"})
 
 
 # ---------------------------------------------------------- remote-check ---
 
-TARGET_RE = re.compile(r"^([^@\s]{1,128})@([^:\s]{1,253}):(/.{0,499}|.{1,500})$")
-
-# dedicated replication keypair; picked up automatically by vm-replicate
-# and by remote-check while it exists
-KEY_PATH = Path("/etc/vm-replication/id_ed25519")
-
-
-def auth_hint(stderr, has_key=False):
-    """Human hint for a failed ssh connection."""
-    s = (stderr or "").lower()
-    if "host key verification failed" in s:
-        return ("The remote host key is not known to root yet. Use the "
-                "\"Accept host key\" button below (verify the fingerprints "
-                "first if you can), or run the ssh command once in a terminal "
-                "and confirm the key.")
-    if "permission denied" in s:
-        if has_key:
-            return ("Key authentication was rejected. Append the dedicated "
-                    f"public key ({KEY_PATH}.pub) to ~/.ssh/authorized_keys of "
-                    "the target user on the remote host, or run:  "
-                    f"sudo ssh-copy-id -i {KEY_PATH}.pub <same ssh options> user@host")
-        return ("Key authentication was rejected. Install root's key on the "
-                "remote host:  sudo ssh-copy-id <same ssh options> user@host")
-    if "connection refused" in s:
-        return ("Connection refused — is sshd running there and is the port "
-                "correct (see the SSH options field, -p <port>)?")
-    if "timed out" in s or "connection timed out" in s:
-        return ("Connection timed out — check the address, port and firewall.")
-    if "name or service not known" in s or "could not resolve" in s:
-        return ("The host name could not be resolved. Note: name resolution "
-                "happens for root, aliases belong into /root/.ssh/config.")
-    return None
-
-
-def parse_target_opts(payload):
-    """Shared parsing of {remote_target, ssh_opts} (falls back to the saved
-    config). Returns a dict; on invalid input emits a JSON result and exits."""
+def resolve_target_opts(vm, payload):
+    """Resolve {target, opts, key_path} for a VM from the entry, allowing the
+    UI to override target/opts with unsaved form values. Emits JSON on error."""
     payload = payload if isinstance(payload, dict) else {}
-    cfg = parse_config()
-    target = str(payload.get("remote_target") or cfg_get(cfg, "REMOTE_TARGET") or "").strip()
-    opts = str(payload.get("ssh_opts") or cfg_get(cfg, "REMOTE_SSH_OPTS") or "").strip()
+    cfg = read_entry(vm)
+    target = str(payload.get("remote_target") if payload.get("remote_target") is not None
+                 else get_val(cfg, "REMOTE_TARGET")).strip()
+    opts = str(payload.get("ssh_opts") if payload.get("ssh_opts") is not None
+               else get_val(cfg, "REMOTE_SSH_OPTS")).strip()
+    return target, opts, key_path(vm)
 
+
+def parse_target_opts(target, opts):
     m = TARGET_RE.match(target)
     if not m:
         out({"ok": False, "target": target, "checks": [{
-            "name": "Target format",
-            "ok": False,
+            "name": "Target format", "ok": False,
             "detail": "expected user@host:/absolute/path (no port — put it into SSH options as -p <port>)",
         }]})
     user, host, path = m.groups()
-
     try:
         opt_list = shlex.split(opts)
     except ValueError as exc:
         out({"ok": False, "target": target, "checks": [{
             "name": "SSH options", "ok": False, "detail": f"cannot parse: {exc}",
         }]})
-
     port = None
     for i, o in enumerate(opt_list):
         if o == "-p" and i + 1 < len(opt_list):
@@ -558,46 +606,61 @@ def parse_target_opts(payload):
             "opt_list": opt_list, "port": port}
 
 
-def cmd_remote_check(payload):
-    """Probe SSH reachability and target-path usability for the UI form."""
-    t = parse_target_opts(payload)
-    target, user, host, path = t["target"], t["user"], t["host"], t["path"]
+def auth_hint(stderr, key_path=None):
+    s = (stderr or "").lower()
+    if "host key verification failed" in s:
+        return ("The remote host key is not known to root yet. Use the "
+                "\"Accept host key\" button below (verify the fingerprints "
+                "first if you can), or run the ssh command once in a terminal "
+                "and confirm the key.")
+    if "permission denied" in s:
+        if key_path:
+            return ("Key authentication was rejected. Append the profile's "
+                    f"public key ({key_path}.pub) to ~/.ssh/authorized_keys of "
+                    "the target user on the remote host, or run:  "
+                    f"sudo ssh-copy-id -i {key_path}.pub <same ssh options> user@host")
+        return ("Key authentication was rejected. Install root's key on the "
+                "remote host:  sudo ssh-copy-id <same ssh options> user@host")
+    if "connection refused" in s:
+        return ("Connection refused — is sshd running there and is the port "
+                "correct (see the SSH options field, -p <port>)?")
+    if "timed out" in s or "connection timed out" in s:
+        return "Connection timed out — check the address, port and firewall."
+    if "name or service not known" in s or "could not resolve" in s:
+        return ("The host name could not be resolved. Note: name resolution "
+                "happens for root, aliases belong into /root/.ssh/config.")
+    return None
+
+
+def cmd_remote_check(vm, payload):
+    target, opts, kp = resolve_target_opts(vm, payload)
+    t = parse_target_opts(target, opts)
+    user, host, path = t["user"], t["host"], t["path"]
     opt_list, port = t["opt_list"], t["port"]
     checks = []
 
     def ssh_argv(remote_command):
         extra = []
-        if KEY_PATH.is_file():
-            # same rule as vm-replicate: the dedicated key wins, defaults ignored
-            extra = ["-i", str(KEY_PATH), "-o", "IdentitiesOnly=yes"]
-        return ["ssh", *opt_list,
-                "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", *extra,
-                f"{user}@{host}", remote_command]
+        if kp.is_file():
+            extra = ["-i", str(kp), "-o", "IdentitiesOnly=yes"]
+        return ["ssh", *opt_list, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                *extra, f"{user}@{host}", remote_command]
 
-    # 1) TCP + host key + key authentication
     r = run_cmd(ssh_argv("true"), timeout=25)
-    checks.append({
-        "name": "SSH connection and key auth",
-        "ok": r.returncode == 0,
-        "detail": "connected, public key accepted" if r.returncode == 0
-                  else (r.stderr.strip().splitlines() or ["ssh failed"])[-1][:200],
-    })
-    hint = None if r.returncode == 0 else auth_hint(r.stderr, KEY_PATH.is_file())
+    checks.append({"name": "SSH connection and key auth", "ok": r.returncode == 0,
+                   "detail": "connected, public key accepted" if r.returncode == 0
+                             else (r.stderr.strip().splitlines() or ["ssh failed"])[-1][:200]})
+    hint = None if r.returncode == 0 else auth_hint(r.stderr, kp if kp.is_file() else None)
     if r.returncode != 0:
         out({"ok": False, "target": target, "port": port, "checks": checks, "hint": hint})
 
-    # 2) remote side: path exists / writable (or creatable), rsync present.
-    #    Everything is quoted; the probe only reads metadata, except it may
-    #    later (via rsync) create the final path component itself.
     q = shlex.quote
-    probe = (
-        f'p={q(path)}; d=0; w=0; rs=0; v="-"; '
-        '[ -d "$p" ] && d=1; '
-        '{ [ -w "$p" ] || { [ ! -e "$p" ] && [ -w "$(dirname "$p")" ]; }; } && w=1; '
-        'command -v rsync >/dev/null 2>&1 && { rs=1; v=$(rsync --version 2>/dev/null | head -n 1); }; '
-        'echo "d=$d w=$w rs=$rs"; echo "v=$v"'
-    )
-    r2 = run_cmd([*ssh_argv(probe)], timeout=30)
+    probe = (f'p={q(path)}; d=0; w=0; rs=0; v="-"; '
+             '[ -d "$p" ] && d=1; '
+             '{ [ -w "$p" ] || { [ ! -e "$p" ] && [ -w "$(dirname "$p")" ]; }; } && w=1; '
+             'command -v rsync >/dev/null 2>&1 && { rs=1; v=$(rsync --version 2>/dev/null | head -n 1); }; '
+             'echo "d=$d w=$w rs=$rs"; echo "v=$v"')
+    r2 = run_cmd(ssh_argv(probe), timeout=30)
     flags, rsync_version = {}, "-"
     if r2.returncode == 0:
         for line in r2.stdout.splitlines():
@@ -609,36 +672,25 @@ def cmd_remote_check(payload):
         checks.append({"name": "Remote probe", "ok": False,
                        "detail": (r2.stderr.strip().splitlines() or ["probe failed"])[-1][:200]})
         out({"ok": False, "target": target, "port": port, "checks": checks})
-    exists = flags.get("d") == "1"
-    writable = flags.get("w") == "1"
-    checks.append({
-        "name": "Target path",
-        "ok": writable,
-        "detail": (f"{path} — exists and writable" if exists and writable else
-                   f"{path} — writable (will be created on first sync)" if writable else
-                   f"{path} — missing and parent not writable"),
-    })
+    exists, writable = flags.get("d") == "1", flags.get("w") == "1"
+    checks.append({"name": "Target path", "ok": writable,
+                   "detail": (f"{path} — exists and writable" if exists and writable else
+                              f"{path} — writable (will be created on first sync)" if writable else
+                              f"{path} — missing and parent not writable")})
     has_rsync = flags.get("rs") == "1"
-    checks.append({
-        "name": "rsync on remote host",
-        "ok": has_rsync,
-        "detail": rsync_version if has_rsync else "rsync not found in PATH — install it on the remote host",
-    })
-    out({"ok": writable and has_rsync, "target": target, "port": port,
-         "checks": checks})
+    checks.append({"name": "rsync on remote host", "ok": has_rsync,
+                   "detail": rsync_version if has_rsync else "rsync not found in PATH — install it on the remote host"})
+    out({"ok": writable and has_rsync, "target": target, "port": port, "checks": checks})
 
 
 # ----------------------------------------------------------- host keys ---
 
 KNOWN_HOSTS = Path("/root/.ssh/known_hosts")
-HOST_RE = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
 
 
 def scan_host_keys(t):
-    """Run ssh-keyscan for the parsed target; returns (lines, fingerprints)."""
     host = t["host"]
     if not HOST_RE.match(host):
-        # e.g. an ssh-config alias with other characters — refuse
         out({"ok": False, "host": host,
              "detail": "host name contains characters that cannot be scanned safely"})
     argv = ["ssh-keyscan"]
@@ -661,8 +713,7 @@ def scan_host_keys(t):
     return lines, keys
 
 
-def known_hostspecs(t):
-    """Set of (hostspec, keytype) pairs already present in known_hosts."""
+def known_hostspecs():
     existing = set()
     if KNOWN_HOSTS.is_file():
         for ln in KNOWN_HOSTS.read_text().splitlines():
@@ -672,82 +723,68 @@ def known_hostspecs(t):
     return existing
 
 
-def cmd_hostkey_scan(payload):
-    t = parse_target_opts(payload)
-    lines, keys = scan_host_keys(t)
-    existing = known_hostspecs(t)
+def cmd_hostkey_scan(vm, payload):
+    target, opts, _ = resolve_target_opts(vm, payload)
+    t = parse_target_opts(target, opts)
+    _, keys = scan_host_keys(t)
+    existing = known_hostspecs()
     for k in keys:
         k["already_known"] = (k["hostspec"], k["type"]) in existing
     out({"ok": True, "host": t["host"], "port": t["port"], "keys": keys})
 
 
-def cmd_hostkey_accept(payload):
-    t = parse_target_opts(payload)
+def cmd_hostkey_accept(vm, payload):
+    target, opts, _ = resolve_target_opts(vm, payload)
+    t = parse_target_opts(target, opts)
     lines, keys = scan_host_keys(t)
-    existing = known_hostspecs(t)
-    to_add = [(ln, k) for ln, k in zip(lines, keys)
-              if (k["hostspec"], k["type"]) not in existing]
+    existing = known_hostspecs()
+    to_add = [ln for ln, k in zip(lines, keys) if (k["hostspec"], k["type"]) not in existing]
     if not to_add:
-        out({"ok": True, "added": 0, "keys": keys,
-             "detail": "all host keys are already trusted"})
+        out({"ok": True, "added": 0, "keys": keys, "detail": "all host keys are already trusted"})
     KNOWN_HOSTS.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(KNOWN_HOSTS.parent, 0o700)
     prefix = ""
     if KNOWN_HOSTS.is_file() and KNOWN_HOSTS.read_text() and not KNOWN_HOSTS.read_text().endswith("\n"):
         prefix = "\n"
     with open(KNOWN_HOSTS, "a") as f:
-        f.write(prefix + "\n".join(ln for ln, _ in to_add) + "\n")
-    if KNOWN_HOSTS.exists():
-        os.chmod(KNOWN_HOSTS, 0o600)
+        f.write(prefix + "\n".join(to_add) + "\n")
+    os.chmod(KNOWN_HOSTS, 0o600)
     out({"ok": True, "added": len(to_add), "keys": keys})
 
 
 # --------------------------------------------------------------- ssh key ---
 
-def key_info():
-    pub = Path(str(KEY_PATH) + ".pub")
-    exists = KEY_PATH.is_file() and pub.is_file()
-    info = {
-        "path": str(KEY_PATH),
-        "exists": exists,
-        "used_automatically": exists,
-    }
-    if exists:
-        info["public_key"] = pub.read_text().strip()
-        r = run_cmd(["ssh-keygen", "-lf", str(pub)])
-        info["fingerprint"] = r.stdout.strip() if r.returncode == 0 else None
-        info["generated_at"] = iso(KEY_PATH.stat().st_mtime)
-    return info
+def cmd_key_get(vm):
+    out(key_info(vm))
 
 
-def cmd_key_get():
-    out(key_info())
-
-
-def cmd_key_generate():
-    pub = Path(str(KEY_PATH) + ".pub")
-    KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    for p in (KEY_PATH, pub):
+def cmd_key_generate(vm):
+    if not VM_RE.match(vm):
+        fail(f"invalid VM name {vm!r}")
+    kp = key_path(vm)
+    pub = Path(str(kp) + ".pub")
+    KEYS_DIR.mkdir(parents=True, exist_ok=True)
+    for p in (kp, pub):
         try:
             os.remove(p)
         except FileNotFoundError:
             pass
-    comment = f"vm-replication@{socket.gethostname()} {datetime.now().astimezone():%Y-%m-%d}"
-    r = run_cmd(["ssh-keygen", "-t", "ed25519", "-N", "", "-q",
-                 "-C", comment, "-f", str(KEY_PATH)], timeout=30)
+    comment = f"vm-replication@{socket.gethostname()}/{vm} {datetime.now().astimezone():%Y-%m-%d}"
+    r = run_cmd(["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-C", comment, "-f", str(kp)], timeout=30)
     if r.returncode != 0 or not pub.is_file():
         fail(r.stderr.strip() or "ssh-keygen failed")
-    os.chmod(KEY_PATH, 0o600)
-    out(key_info())
+    os.chmod(kp, 0o600)
+    out(key_info(vm))
 
 
-def cmd_key_delete():
+def cmd_key_delete(vm):
+    kp = key_path(vm)
     removed = []
-    for p in (KEY_PATH, Path(str(KEY_PATH) + ".pub")):
+    for p in (kp, Path(str(kp) + ".pub")):
         if p.exists():
             os.remove(p)
             removed.append(str(p))
-    out({"ok": True, "removed": removed, "key": key_info()})
+    out({"ok": True, "removed": removed, "key": key_info(vm)})
 
 
 # ------------------------------------------------------------------ run ---
@@ -761,51 +798,42 @@ def spawn_detached(argv, pidfile, logfile, extra_env=None):
     if extra_env:
         env.update(extra_env)
     log = open(logfile, "w")
-    proc = subprocess.Popen(
-        argv, stdout=log, stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL, start_new_session=True, env=env)
+    proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, start_new_session=True, env=env)
     pidfile.write_text(str(proc.pid))
     return proc.pid
 
 
 def cmd_run(vm=None):
-    cfg = parse_config()
-    env = None
+    if not os.path.exists(REPLICATE):
+        fail(f"{REPLICATE} not found — is the replication stack installed?")
+    argv = [REPLICATE]
     if vm:
         if not VM_RE.match(vm):
             fail(f"invalid VM name {vm!r}")
-        if vm not in list_all_vms(cfg):
+        if vm not in list_all_vms(read_defaults()):
             fail(f"VM {vm!r} does not exist")
-        lines = CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.is_file() else []
-        tmp = RUN_DIR / "vm-replication-manual.conf"
-        tmp.write_text("\n".join(
-            f'VMS="{vm}"' if l.startswith("VMS=") else l for l in lines
-        ).rstrip("\n") + "\n")
-        env = {"CONFIG": str(tmp)}
-    if not os.path.exists(REPLICATE):
-        fail(f"{REPLICATE} not found — is the replication stack installed?")
-    pid = spawn_detached([REPLICATE], MANUAL_PID, MANUAL_LOG, env)
+        argv.append(vm)
+    pid = spawn_detached(argv, MANUAL_PID, MANUAL_LOG)
     out({"ok": True, "pid": pid})
 
 
 def cmd_run_status():
     pid = pid_alive(MANUAL_PID)
     busy = replication_busy()
-    out({"running": busy or pid is not None,
-         "pid": pid,
-         "lock_busy": busy,
+    out({"running": busy or pid is not None, "pid": pid, "lock_busy": busy,
          "log_tail": tail_file(MANUAL_LOG)})
 
 
 # -------------------------------------------------------------- restore ---
 
-def validated_chain_path(cfg, vm, chain):
+def validated_chain_path(vm, chain):
     if not VM_RE.match(vm):
         fail(f"invalid VM name {vm!r}")
     if not CHAIN_RE.match(chain):
         fail(f"invalid chain name {chain!r}")
-    root = Path(storage_root(cfg)).resolve()
-    chain_dir = (root / vm / chain)
+    root = Path(entry_root(read_entry(vm))).resolve()
+    chain_dir = root / vm / chain
     if not chain_dir.is_dir():
         fail(f"chain directory not found: {chain_dir}")
     real = chain_dir.resolve()
@@ -815,8 +843,7 @@ def validated_chain_path(cfg, vm, chain):
 
 
 def cmd_restore_start(vm, chain, target):
-    cfg = parse_config()
-    chain_dir = validated_chain_path(cfg, vm, chain)
+    chain_dir = validated_chain_path(vm, chain)
     if not os.path.exists(RESTORE):
         fail(f"{RESTORE} not found — is the replication stack installed?")
     target = os.path.normpath(str(target or ""))
@@ -827,39 +854,34 @@ def cmd_restore_start(vm, chain, target):
     parent = os.path.dirname(target)
     if not os.path.isdir(parent):
         fail(f"target directory does not exist: {parent}")
-
-    total = sum(c["total_bytes"] for c in scan_chains(storage_root(cfg), vm)
+    total = sum(c["total_bytes"] for c in scan_chains(entry_root(read_entry(vm)), vm)
                 if c["name"] == chain)
     st = os.statvfs(parent)
     free = st.f_bavail * st.f_frsize
     if total and free < total:
         fail(f"not enough space on {parent}: need ~{total >> 30} GiB, free {free >> 30} GiB")
-
     pid = spawn_detached([RESTORE, str(chain_dir), target], RESTORE_PID, RESTORE_LOG)
     out({"ok": True, "pid": pid, "target": target})
 
 
 def cmd_restore_status():
     pid = pid_alive(RESTORE_PID)
-    out({"running": pid is not None, "pid": pid,
-         "log_tail": tail_file(RESTORE_LOG)})
+    out({"running": pid is not None, "pid": pid, "log_tail": tail_file(RESTORE_LOG)})
 
 
 # ---------------------------------------------------------- chain-delete ---
 
 def cmd_chain_delete(vm, chain):
-    cfg = parse_config()
     if replication_busy():
         fail("replication is running — try again when it finishes")
-    chain_dir = validated_chain_path(cfg, vm, chain)
+    chain_dir = validated_chain_path(vm, chain)
     cold = chain_dir.name.startswith("cold-")
     shutil.rmtree(chain_dir)
     if not cold:
-        # stale checkpoints pointing at the removed chain are pruned by the
-        # next replication run; drop them now to keep `checkpoint-list` clean
-        for cp in vm_checkpoints(cfg, vm):
+        defaults = read_defaults()
+        for cp in vm_checkpoints(defaults, vm):
             if f"-{chain}-" in cp:
-                virsh(cfg, "checkpoint-delete", vm, cp)
+                virsh(defaults, "checkpoint-delete", vm, cp)
     out({"ok": True})
 
 
@@ -879,7 +901,13 @@ def cmd_logs(n):
         n = max(1, min(int(n), 5000))
     except ValueError:
         fail("lines must be an integer")
-    out({"lines": journalctl(parse_config(), n)})
+    out({"lines": journalctl(read_defaults(), n)})
+
+
+def _vm_arg(rest):
+    if not rest or not VM_RE.match(rest[0]):
+        fail("usage: expects a VM name argument")
+    return rest[0]
 
 
 def main():
@@ -889,22 +917,30 @@ def main():
     cmd, rest = args[0], args[1:]
     if cmd == "status":
         cmd_status()
-    elif cmd == "config-get":
-        out({"config": parse_config()})
-    elif cmd == "config-set":
-        cmd_config_set(json.load(sys.stdin))
+    elif cmd == "defaults-get":
+        out({"defaults": read_defaults()})
+    elif cmd == "defaults-set":
+        cmd_defaults_set(json.load(sys.stdin))
+    elif cmd == "entry-list":
+        out({"entries": list_entry_vms()})
+    elif cmd == "entry-get":
+        out({"entry": read_entry(_vm_arg(rest)), "key": key_info(_vm_arg(rest))})
+    elif cmd == "entry-save":
+        cmd_entry_save(json.load(sys.stdin))
+    elif cmd == "entry-delete":
+        cmd_entry_delete(_vm_arg(rest))
     elif cmd == "remote-check":
-        cmd_remote_check(json.load(sys.stdin))
+        cmd_remote_check(_vm_arg(rest), json.load(sys.stdin))
     elif cmd == "hostkey-scan":
-        cmd_hostkey_scan(json.load(sys.stdin))
+        cmd_hostkey_scan(_vm_arg(rest), json.load(sys.stdin))
     elif cmd == "hostkey-accept":
-        cmd_hostkey_accept(json.load(sys.stdin))
+        cmd_hostkey_accept(_vm_arg(rest), json.load(sys.stdin))
     elif cmd == "key-get":
-        cmd_key_get()
+        cmd_key_get(_vm_arg(rest))
     elif cmd == "key-generate":
-        cmd_key_generate()
+        cmd_key_generate(_vm_arg(rest))
     elif cmd == "key-delete":
-        cmd_key_delete()
+        cmd_key_delete(_vm_arg(rest))
     elif cmd == "run":
         vm = rest[1] if len(rest) >= 2 and rest[0] == "--vm" else None
         cmd_run(vm)
@@ -935,5 +971,5 @@ if __name__ == "__main__":
         main()
     except SystemExit:
         raise
-    except Exception as exc:  # noqa: BLE001 — the helper must always answer JSON-less cleanly
+    except Exception as exc:  # noqa: BLE001 — the helper must always answer cleanly
         fail(f"{type(exc).__name__}: {exc}")

@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
-    Alert, Button, Card, CardBody, CardFooter, CardHeader, CardTitle,
-    Checkbox, Content, ContentVariants, Flex, FlexItem, Form, FormGroup,
-    Grid, GridItem, HelperText, HelperTextItem, Modal, ModalBody,
+    Alert, Button, Card, CardBody, CardHeader, CardTitle, Checkbox,
+    Content, ContentVariants, Flex, FlexItem, Form, FormGroup, Grid,
+    GridItem, HelperText, HelperTextItem, Label, Modal, ModalBody,
     ModalFooter, ModalHeader, Spinner, Switch, TextInput,
 } from "@patternfly/react-core";
-import {
-    CheckCircleIcon, TimesCircleIcon,
-} from "@patternfly/react-icons";
+import { CheckCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { copyText, errorMessage, helper } from "../api.js";
 import { useStatus } from "../app.jsx";
 
@@ -16,143 +14,220 @@ function toInt(v) {
     return isNaN(n) ? 0 : n;
 }
 
-export function ConfigView() {
-    const { status, refresh } = useStatus();
-    const [form, setForm] = useState(null);
-    const [manualVm, setManualVm] = useState("");
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
+/* ------------------------------------------------------------------ key --- */
+
+function KeyBlock({ vm, keyInfo, setKeyInfo, disabled }) {
+    const [busy, setBusy] = useState(null);
+    const [confirm, setConfirm] = useState(null);
     const [error, setError] = useState(null);
-    const [check, setCheck] = useState(null); // {checking} | {result} | {error}
-    const [keyInfo, setKeyInfo] = useState(null); // helper key-get result
-    const [keyBusy, setKeyBusy] = useState(null); // 'generate' | 'delete' | null
-    const [keyConfirm, setKeyConfirm] = useState(null); // 'regenerate' | 'delete' | null
-    const [keyError, setKeyError] = useState(null);
     const [copied, setCopied] = useState(false);
-    const [hostkey, setHostkey] = useState(null); // {scanning} | {scan} | {error}
 
-    useEffect(() => {
-        if (status && !form) {
-            const c = status.config;
-            setForm({
-                VMS: (c.VMS || "").split(/\s+/).filter(Boolean),
-                REMOTE_TARGET: c.REMOTE_TARGET || "",
-                REMOTE_SSH_OPTS: c.REMOTE_SSH_OPTS || "",
-                STORAGE_ROOT: c.STORAGE_ROOT || "/mnt/dd/replication",
-                FULL_EVERY_DAYS: toInt(c.FULL_EVERY_DAYS || 7),
-                MAX_INCS: toInt(c.MAX_INCS || 48),
-                KEEP_CHAINS: toInt(c.KEEP_CHAINS || 2),
-                BACKUP_TIMEOUT: toInt(c.BACKUP_TIMEOUT || 14400),
-                QEMU_IMG_CHECK: String(c.QEMU_IMG_CHECK ?? "1") !== "0",
-                LIBVIRT_URI: c.LIBVIRT_URI || "qemu:///system",
-            });
-        }
-    }, [status, form]);
-
-    useEffect(() => {
-        helper("key-get").then(setKeyInfo).catch(() => setKeyInfo({ exists: false, unavailable: true }));
-    }, []);
-
-    if (!status || !form)
-        return <Spinner size="lg" />;
-
-    const set = patch => {
-        setForm(f => ({ ...f, ...patch }));
-        setSaved(false);
-        if ("REMOTE_TARGET" in patch || "REMOTE_SSH_OPTS" in patch)
-            setCheck(null);
-    };
-
-    const checkAccess = async () => {
-        setCheck({ checking: true });
+    const act = async action => {
+        setBusy(action);
+        setError(null);
         try {
-            const result = await helper("remote-check", [], JSON.stringify({
-                remote_target: form.REMOTE_TARGET.trim(),
-                ssh_opts: form.REMOTE_SSH_OPTS,
-            }));
-            setCheck({ result });
-        } catch (e) {
-            setCheck({ error: errorMessage(e) });
-        }
-    };
-
-    const keyAction = async action => {
-        setKeyBusy(action);
-        setKeyError(null);
-        try {
-            const r = await helper(action === "delete" ? "key-delete" : "key-generate");
+            const r = await helper(action === "delete" ? "key-delete" : "key-generate", [vm]);
             setKeyInfo(r.key ?? r);
-            setKeyConfirm(null);
+            setConfirm(null);
         } catch (e) {
-            setKeyError(errorMessage(e));
+            setError(errorMessage(e));
         } finally {
-            setKeyBusy(null);
+            setBusy(null);
         }
     };
 
-    const copyPubKey = async () => {
-        if (keyInfo?.public_key && await copyText(keyInfo.public_key)) {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+    if (!vm)
+        return null;
+
+    return (
+        <Flex direction={{ default: "column" }} gap={{ default: "gapSm" }}>
+            {keyInfo?.exists ? (
+                <>
+                    <Flex gap={{ default: "gapSm" }}>
+                        <FlexItem grow={{ default: "grow" }}>
+                            <TextInput isReadOnly id={`pubkey-${vm}`} value={keyInfo.public_key} className="mono-input" />
+                        </FlexItem>
+                        <FlexItem>
+                            <Button variant="secondary" onClick={async () => {
+                                if (keyInfo.public_key && await copyText(keyInfo.public_key)) {
+                                    setCopied(true); setTimeout(() => setCopied(false), 2000);
+                                }
+                            }}>{copied ? "Copied" : "Copy"}</Button>
+                        </FlexItem>
+                    </Flex>
+                    <HelperText><HelperTextItem>
+                        {keyInfo.fingerprint || "fingerprint unavailable"}
+                    </HelperTextItem></HelperText>
+                    <Flex gap={{ default: "gapSm" }}>
+                        <FlexItem><Button variant="warning" isDisabled={!!busy || disabled} onClick={() => setConfirm("regenerate")}>Regenerate</Button></FlexItem>
+                        <FlexItem><Button variant="danger" isDisabled={!!busy || disabled} onClick={() => setConfirm("delete")}>Delete</Button></FlexItem>
+                        {busy && <FlexItem><Spinner size="md" /></FlexItem>}
+                    </Flex>
+                </>
+            ) : (
+                <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
+                    <FlexItem><Button variant="secondary" isDisabled={!!busy || disabled} onClick={() => act("generate")}>Generate key</Button></FlexItem>
+                    {busy && <FlexItem><Spinner size="md" /></FlexItem>}
+                    <FlexItem><HelperText><HelperTextItem>No dedicated key — ssh falls back to root's default keys.</HelperTextItem></HelperText></FlexItem>
+                </Flex>
+            )}
+            {error && <Alert variant="danger" isInline title={error} />}
+
+            <Modal isOpen={!!confirm} onClose={() => setConfirm(null)} variant="small">
+                <ModalHeader title={confirm === "delete" ? "Delete this profile's SSH key?" : "Regenerate this profile's SSH key?"} />
+                <ModalBody>
+                    <Content component={ContentVariants.p}>
+                        {confirm === "delete"
+                            ? "The key pair is removed. ssh falls back to root's default keys; remote hosts that only had this key will reject connections."
+                            : "A new key pair replaces the current one. The old key stops working immediately — install the new public key on the remote host before the next sync."}
+                    </Content>
+                </ModalBody>
+                <ModalFooter>
+                    <Button variant={confirm === "delete" ? "danger" : "primary"} isDisabled={!!busy} onClick={() => act(confirm === "delete" ? "delete" : "generate")}>
+                        {confirm === "delete" ? "Delete" : "Regenerate"}
+                    </Button>
+                    <Button variant="link" isDisabled={!!busy} onClick={() => setConfirm(null)}>Cancel</Button>
+                </ModalFooter>
+            </Modal>
+        </Flex>
+    );
+}
+
+/* ---------------------------------------------------------------- check --- */
+
+function CheckBlock({ vm, target, opts }) {
+    const [state, setState] = useState(null); // {checking}|{result}|{error}
+    const [hostkey, setHostkey] = useState(null);
+
+    useEffect(() => setState(null), [target, opts]);
+
+    const run = async () => {
+        setState({ checking: true });
+        try {
+            const result = await helper("remote-check", [vm], JSON.stringify({
+                remote_target: target, ssh_opts: opts,
+            }));
+            setState({ result });
+        } catch (e) {
+            setState({ error: errorMessage(e) });
         }
     };
 
-    /* does the last check fail specifically because of an unknown host key? */
-    const hostKeyProblem = check?.result && check.result.checks?.some(
+    const hostKeyProblem = state?.result?.checks?.some(
         c => !c.ok && /host key verification failed/i.test(c.detail || ""));
 
-    const scanHostKeys = async () => {
+    const scan = async () => {
         setHostkey({ scanning: true });
         try {
-            const scan = await helper("hostkey-scan", [], JSON.stringify({
-                remote_target: form.REMOTE_TARGET.trim(),
-                ssh_opts: form.REMOTE_SSH_OPTS,
-            }));
+            const scan = await helper("hostkey-scan", [vm], JSON.stringify({ remote_target: target, ssh_opts: opts }));
             setHostkey({ scan });
-        } catch (e) {
-            setHostkey({ error: errorMessage(e) });
-        }
+        } catch (e) { setHostkey({ error: errorMessage(e) }); }
     };
-
-    const acceptHostKeys = async () => {
+    const accept = async () => {
         setHostkey(h => ({ ...h, accepting: true }));
         try {
-            await helper("hostkey-accept", [], JSON.stringify({
-                remote_target: form.REMOTE_TARGET.trim(),
-                ssh_opts: form.REMOTE_SSH_OPTS,
-            }));
+            await helper("hostkey-accept", [vm], JSON.stringify({ remote_target: target, ssh_opts: opts }));
             setHostkey(null);
-            await checkAccess();
-        } catch (e) {
-            setHostkey(h => ({ ...h, accepting: false, error: errorMessage(e) }));
-        }
+            await run();
+        } catch (e) { setHostkey(h => ({ ...h, accepting: false, error: errorMessage(e) })); }
     };
 
-    const addVm = name => {
-        const n = name.trim();
-        if (!n || form.VMS.includes(n)) return;
-        set({ VMS: [...form.VMS, n] });
-        setManualVm("");
-    };
+    return (
+        <>
+            <Button variant="secondary" onClick={run} isDisabled={!target.trim() || !!state?.checking}
+                icon={state?.checking ? <Spinner size="sm" /> : undefined}>
+                {state?.checking ? "Checking…" : "Check access"}
+            </Button>
+            {state?.error && <Alert variant="danger" isInline title={state.error} />}
+            {state?.result && (
+                <Alert variant={state.result.ok ? "success" : "warning"} isInline
+                    title={state.result.ok
+                        ? "Access OK — " + state.result.target + (state.result.port ? ` (port ${state.result.port})` : "")
+                        : "Access check failed"}>
+                    <ul className="check-list">
+                        {state.result.checks.map((c, i) => (
+                            <li key={i} className={c.ok ? "ok" : "fail"}>
+                                {c.ok ? <CheckCircleIcon className="ok-icon" /> : <TimesCircleIcon className="fail-icon" />}
+                                {" "}<strong>{c.name}:</strong> {c.detail}
+                            </li>
+                        ))}
+                    </ul>
+                    {state.result.hint && <Content component={ContentVariants.small}>{state.result.hint}</Content>}
+                    {hostKeyProblem && (
+                        <div style={{ marginTop: "0.5rem" }}>
+                            <Button variant="secondary" isDisabled={!!hostkey?.scanning}
+                                icon={hostkey?.scanning ? <Spinner size="sm" /> : undefined} onClick={scan}>
+                                {hostkey?.scanning ? "Scanning…" : "Accept host key"}
+                            </Button>
+                            {hostkey?.error && <Content component={ContentVariants.small}>{hostkey.error}</Content>}
+                        </div>
+                    )}
+                </Alert>
+            )}
+            <Modal isOpen={!!hostkey?.scan} onClose={() => setHostkey(null)} variant="medium">
+                <ModalHeader title={hostkey?.scan ? "Trust " + hostkey.scan.host + (hostkey.scan.port ? ":" + hostkey.scan.port : "") + "?" : ""} />
+                <ModalBody>
+                    <Content component={ContentVariants.p}>
+                        These are the host keys the remote server presents. Verify them out-of-band
+                        if you can; accepting trusts this server on first use.
+                    </Content>
+                    <pre className="log-tail mono-input" style={{ maxHeight: "14rem" }}>
+                        {hostkey?.scan?.keys?.map(k =>
+                            `${k.already_known ? "[known]  " : "[new]      "}${k.fingerprint}`).join("\n") || ""}
+                    </pre>
+                    {hostkey?.error && <Alert variant="danger" isInline title={hostkey.error} />}
+                </ModalBody>
+                <ModalFooter>
+                    <Button variant="primary" isDisabled={!!hostkey?.accepting} onClick={accept}>{hostkey?.accepting ? "Adding…" : "Accept and re-check"}</Button>
+                    <Button variant="link" isDisabled={!!hostkey?.accepting} onClick={() => setHostkey(null)}>Cancel</Button>
+                </ModalFooter>
+            </Modal>
+        </>
+    );
+}
+
+/* ------------------------------------------------------------ entry form --- */
+
+function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSaved }) {
+    const [chosenVm, setChosenVm] = useState(vm || "");
+    const [form, setForm] = useState(() => ({
+        REMOTE_TARGET: initial?.REMOTE_TARGET || "",
+        REMOTE_SSH_OPTS: initial?.REMOTE_SSH_OPTS ?? (defaults?.REMOTE_SSH_OPTS || "-o BatchMode=yes -o ConnectTimeout=30"),
+        STORAGE_ROOT: initial?.STORAGE_ROOT || defaults?.STORAGE_ROOT || "/mnt/dd/replication",
+        FULL_EVERY_DAYS: toInt(initial?.FULL_EVERY_DAYS || defaults?.FULL_EVERY_DAYS || 7),
+        MAX_INCS: toInt(initial?.MAX_INCS || defaults?.MAX_INCS || 48),
+        KEEP_CHAINS: toInt(initial?.KEEP_CHAINS || defaults?.KEEP_CHAINS || 2),
+        BACKUP_TIMEOUT: toInt(initial?.BACKUP_TIMEOUT || defaults?.BACKUP_TIMEOUT || 14400),
+        QEMU_IMG_CHECK: String(initial?.QEMU_IMG_CHECK ?? defaults?.QEMU_IMG_CHECK ?? "1") !== "0",
+    }));
+    const [keyInfo, setKeyInfo] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        if (!chosenVm) { setKeyInfo(null); return; }
+        helper("key-get", [chosenVm]).then(setKeyInfo).catch(() => setKeyInfo({ exists: false }));
+    }, [chosenVm]);
+
+    const set = patch => setForm(f => ({ ...f, ...patch }));
 
     const save = async () => {
+        if (!chosenVm) { setError("Choose a VM first"); return; }
         setSaving(true);
         setError(null);
         try {
-            await helper("config-set", [], JSON.stringify({
-                VMS: form.VMS,
-                REMOTE_TARGET: form.REMOTE_TARGET.trim(),
-                REMOTE_SSH_OPTS: form.REMOTE_SSH_OPTS,
-                STORAGE_ROOT: form.STORAGE_ROOT.trim(),
-                FULL_EVERY_DAYS: form.FULL_EVERY_DAYS,
-                MAX_INCS: form.MAX_INCS,
-                KEEP_CHAINS: form.KEEP_CHAINS,
-                BACKUP_TIMEOUT: form.BACKUP_TIMEOUT,
-                QEMU_IMG_CHECK: form.QEMU_IMG_CHECK ? 1 : 0,
-                LIBVIRT_URI: form.LIBVIRT_URI.trim(),
+            await helper("entry-save", [], JSON.stringify({
+                vm: chosenVm,
+                remote_target: form.REMOTE_TARGET.trim(),
+                ssh_opts: form.REMOTE_SSH_OPTS,
+                storage_root: form.STORAGE_ROOT.trim(),
+                full_every_days: form.FULL_EVERY_DAYS,
+                max_incs: form.MAX_INCS,
+                keep_chains: form.KEEP_CHAINS,
+                backup_timeout: form.BACKUP_TIMEOUT,
+                qemu_img_check: form.QEMU_IMG_CHECK ? 1 : 0,
             }));
-            setSaved(true);
-            await refresh();
+            onSaved();
         } catch (e) {
             setError(errorMessage(e));
         } finally {
@@ -160,331 +235,277 @@ export function ConfigView() {
         }
     };
 
-    const knownVms = [...new Set([...status.all_vms, ...form.VMS])].sort();
+    const showForm = !isNew || chosenVm;
 
     return (
-        <Grid hasGutter>
-            <GridItem span={12} lg={{ span: 8 }}>
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Replication configuration</CardTitle>
-                    </CardHeader>
-                    <CardBody>
+        <div className="entry-editor">
+            <Form>
+                {isNew && (
+                    <FormGroup label="Virtual machine" fieldId="ef-vm">
+                        <select id="ef-vm" className="pf-v6-c-form-control" value={chosenVm}
+                            onChange={e => setChosenVm(e.target.value)}>
+                            <option value="">— select a VM —</option>
+                            {unconfigured.map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                        {unconfigured.length === 0 && (
+                            <HelperText><HelperTextItem variant="warning">
+                                Every running VM already has a configuration.
+                            </HelperTextItem></HelperText>
+                        )}
+                    </FormGroup>
+                )}
+                {!isNew && <Content component={ContentVariants.h4}>{chosenVm}</Content>}
+
+                {showForm && (
+                    <>
+                        <FormGroup label="Remote target" fieldId="ef-remote"
+                            helperText="Empty = keep local copies only. Port goes into SSH options (-p <port>).">
+                            <TextInput id={`ef-remote-${chosenVm}`} value={form.REMOTE_TARGET}
+                                placeholder="user@remote-host:/srv/vm-replication"
+                                onChange={(_e, v) => set({ REMOTE_TARGET: v })} />
+                        </FormGroup>
+                        <FormGroup label="SSH options" fieldId="ef-sshopts">
+                            <TextInput id={`ef-sshopts-${chosenVm}`} value={form.REMOTE_SSH_OPTS}
+                                onChange={(_e, v) => set({ REMOTE_SSH_OPTS: v })} />
+                        </FormGroup>
+                        {chosenVm && (
+                            <FormGroup label="Access check">
+                                <CheckBlock vm={chosenVm} target={form.REMOTE_TARGET} opts={form.REMOTE_SSH_OPTS} />
+                            </FormGroup>
+                        )}
+                        <FormGroup label="Dedicated SSH key" fieldId="ef-key"
+                            helperText="Used automatically for this configuration while it exists.">
+                            {chosenVm && <KeyBlock vm={chosenVm} keyInfo={keyInfo} setKeyInfo={setKeyInfo} disabled={false} />}
+                        </FormGroup>
+
+                        <FormGroup label="Local storage root" fieldId="ef-root">
+                            <TextInput id={`ef-root-${chosenVm}`} value={form.STORAGE_ROOT}
+                                onChange={(_e, v) => set({ STORAGE_ROOT: v })} />
+                        </FormGroup>
+
+                        <Grid hasGutter md={4}>
+                            <GridItem><FormGroup label="Full copy every, days" fieldId="ef-full">
+                                <TextInput id="ef-full" type="number" min="1" value={form.FULL_EVERY_DAYS}
+                                    onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Max increments" fieldId="ef-max">
+                                <TextInput id="ef-max" type="number" min="1" value={form.MAX_INCS}
+                                    onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Chains to keep" fieldId="ef-keep">
+                                <TextInput id="ef-keep" type="number" min="1" value={form.KEEP_CHAINS}
+                                    onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Backup timeout, s" fieldId="ef-timeout">
+                                <TextInput id="ef-timeout" type="number" min="60" value={form.BACKUP_TIMEOUT}
+                                    onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem span={2}><FormGroup label="Integrity check" fieldId="ef-qcheck">
+                                <Switch id="ef-qcheck" label="qemu-img check before sending"
+                                    isChecked={form.QEMU_IMG_CHECK}
+                                    onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} /></FormGroup></GridItem>
+                        </Grid>
+                    </>
+                )}
+
+                {error && <Alert variant="danger" isInline title={error} />}
+                <Flex gap={{ default: "gapSm" }}>
+                    <FlexItem><Button variant="primary" onClick={save} isDisabled={saving || !chosenVm}>
+                        {saving ? "Saving…" : (isNew ? "Add configuration" : "Save changes")}</Button></FlexItem>
+                    <FlexItem><Button variant="link" onClick={onCancel} isDisabled={saving}>Cancel</Button></FlexItem>
+                </Flex>
+            </Form>
+        </div>
+    );
+}
+
+/* ----------------------------------------------------------- defaults --- */
+
+function DefaultsCard() {
+    const { status, refresh, setActionError } = useStatus();
+    const [open, setOpen] = useState(false);
+    const [d, setD] = useState(null);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (status && !d)
+            setD({
+                LIBVIRT_URI: status.defaults?.LIBVIRT_URI || "qemu:///system",
+                STORAGE_ROOT: status.defaults?.STORAGE_ROOT || "/mnt/dd/replication",
+                FULL_EVERY_DAYS: toInt(status.defaults?.FULL_EVERY_DAYS || 7),
+                MAX_INCS: toInt(status.defaults?.MAX_INCS || 48),
+                KEEP_CHAINS: toInt(status.defaults?.KEEP_CHAINS || 2),
+                BACKUP_TIMEOUT: toInt(status.defaults?.BACKUP_TIMEOUT || 14400),
+                QEMU_IMG_CHECK: String(status.defaults?.QEMU_IMG_CHECK ?? "1") !== "0",
+            });
+    }, [status, d]);
+
+    if (!d) return null;
+    const set = patch => setD(x => ({ ...x, ...patch }));
+    const save = async () => {
+        setSaving(true);
+        try {
+            await helper("defaults-set", [], JSON.stringify({
+                LIBVIRT_URI: d.LIBVIRT_URI.trim(),
+                STORAGE_ROOT: d.STORAGE_ROOT.trim(),
+                FULL_EVERY_DAYS: d.FULL_EVERY_DAYS, MAX_INCS: d.MAX_INCS,
+                KEEP_CHAINS: d.KEEP_CHAINS, BACKUP_TIMEOUT: d.BACKUP_TIMEOUT,
+                QEMU_IMG_CHECK: d.QEMU_IMG_CHECK ? 1 : 0,
+            }));
+            await refresh();
+            setOpen(false);
+        } catch (e) {
+            setActionError(errorMessage(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader actions={{ actions: (
+                <Button variant="link" onClick={() => setOpen(o => !o)}>{open ? "Hide" : "Edit"}</Button>) }}>
+                <CardTitle>Global defaults</CardTitle>
+            </CardHeader>
+            <CardBody>
+                <Content component={ContentVariants.small}>
+                    libvirt URI <code>{d.LIBVIRT_URI}</code> · default storage <code>{d.STORAGE_ROOT}</code> ·
+                    full every {d.FULL_EVERY_DAYS}d / max {d.MAX_INCS} incr. / keep {d.KEEP_CHAINS} — used to seed new configurations.
+                </Content>
+                {open && (
+                    <Form style={{ marginTop: "1rem" }}>
+                        <FormGroup label="libvirt URI" fieldId="d-uri">
+                            <TextInput id="d-uri" value={d.LIBVIRT_URI} onChange={(_e, v) => set({ LIBVIRT_URI: v })} /></FormGroup>
+                        <FormGroup label="Default storage root" fieldId="d-root">
+                            <TextInput id="d-root" value={d.STORAGE_ROOT} onChange={(_e, v) => set({ STORAGE_ROOT: v })} /></FormGroup>
+                        <Grid hasGutter md={4}>
+                            <GridItem><FormGroup label="Full every, days"><TextInput type="number" min="1" value={d.FULL_EVERY_DAYS} onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Max increments"><TextInput type="number" min="1" value={d.MAX_INCS} onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Chains to keep"><TextInput type="number" min="1" value={d.KEEP_CHAINS} onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label="Backup timeout, s"><TextInput type="number" min="60" value={d.BACKUP_TIMEOUT} onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem span={2}><FormGroup label="Integrity check"><Switch id="d-qc" label="qemu-img check" isChecked={d.QEMU_IMG_CHECK} onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} /></FormGroup></GridItem>
+                        </Grid>
+                        <Button variant="primary" onClick={save} isDisabled={saving}>{saving ? "Saving…" : "Save defaults"}</Button>
+                    </Form>
+                )}
+            </CardBody>
+        </Card>
+    );
+}
+
+/* ---------------------------------------------------------- configurations --- */
+
+export function ConfigView() {
+    const { status, refresh, setActionError } = useStatus();
+    const [editing, setEditing] = useState(null); // vm name or "new"
+    const [deleteVm, setDeleteVm] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+
+    if (!status) return <Spinner size="lg" />;
+
+    const entries = status.entries || [];
+    const configuredVms = entries.filter(e => e.in_config).map(e => e.vm);
+    const unconfigured = status.all_vms.filter(v => !configuredVms.includes(v));
+
+    const doDelete = async () => {
+        setDeleting(true);
+        try {
+            await helper("entry-delete", [deleteVm]);
+            setDeleteVm(null);
+            await refresh();
+        } catch (e) {
+            setActionError(errorMessage(e));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    return (
+        <Flex direction={{ default: "column" }} gap={{ default: "gapMd" }}>
+            <Card>
+                <CardHeader actions={{ actions: (
+                    <Button variant="primary" isDisabled={!!editing} onClick={() => setEditing("new")}>
+                        Add configuration
+                    </Button>) }}>
+                    <CardTitle>Replication configurations</CardTitle>
+                </CardHeader>
+                <CardBody>
+                    {entries.filter(e => e.in_config).length === 0 && !editing && (
                         <Content component={ContentVariants.p}>
-                            Edits <code>/etc/vm-replication/vms.conf</code>. Comments and unknown
-                            keys in the file are preserved. Changes apply from the next run on.
+                            No configurations yet — add one to replicate a VM with its own
+                            remote target and SSH key.
                         </Content>
-                        <Form style={{ marginTop: "1rem" }}>
-                            <FormGroup label="Replicated VMs" fieldId="vms"
-                                helperText="Select from the VMs known to libvirt or type a name and press Add.">
-                                <Flex direction={{ default: "column" }} gap={{ default: "gapSm" }}>
-                                    <Flex wrap="wrap" gap={{ default: "gapSm" }}>
-                                        {knownVms.map(vm => (
-                                            <FlexItem key={vm}>
-                                                <Checkbox
-                                                    id={`vm-${vm}`}
-                                                    label={vm}
-                                                    isChecked={form.VMS.includes(vm)}
-                                                    onChange={(_e, checked) => set({
-                                                        VMS: checked
-                                                            ? [...form.VMS, vm]
-                                                            : form.VMS.filter(v => v !== vm),
-                                                    })}
-                                                />
-                                            </FlexItem>
-                                        ))}
-                                    </Flex>
-                                    <Flex gap={{ default: "gapSm" }}>
-                                        <FlexItem>
-                                            <TextInput
-                                                id="add-vm"
-                                                placeholder="Add VM by name…"
-                                                value={manualVm}
-                                                onChange={(_e, v) => setManualVm(v)}
-                                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addVm(manualVm); } }}
-                                            />
-                                        </FlexItem>
-                                        <FlexItem>
-                                            <Button variant="secondary" onClick={() => addVm(manualVm)}>
-                                                Add
-                                            </Button>
-                                        </FlexItem>
-                                    </Flex>
-                                </Flex>
-                            </FormGroup>
-
-                            <FormGroup label="Remote target" fieldId="remote"
-                                helperText='Mirror copies over rsync/ssh, e.g. "backup@nas:/srv/vm-replication". Empty = keep local copies only. Port goes into SSH options below.'>
-                                <Flex gap={{ default: "gapSm" }}>
-                                    <FlexItem grow={{ default: "grow" }}>
-                                        <TextInput id="remote" value={form.REMOTE_TARGET}
-                                            placeholder="user@remote-host:/srv/vm-replication"
-                                            onChange={(_e, v) => set({ REMOTE_TARGET: v })} />
-                                    </FlexItem>
-                                    <FlexItem>
-                                        <Button variant="secondary" onClick={checkAccess}
-                                            isDisabled={!form.REMOTE_TARGET.trim() || !!check?.checking}
-                                            icon={check?.checking ? <Spinner size="sm" /> : undefined}>
-                                            {check?.checking ? "Checking…" : "Check access"}
-                                        </Button>
-                                    </FlexItem>
-                                </Flex>
-                                {check?.checking && (
-                                    <HelperText><HelperTextItem>
-                                        Trying to connect (up to ~30&nbsp;seconds)…
-                                    </HelperTextItem></HelperText>
-                                )}
-                                {check?.error && (
-                                    <Alert variant="danger" isInline title={check.error} />
-                                )}
-                                {check?.result && (
-                                    <Alert
-                                        variant={check.result.ok ? "success" : "warning"}
-                                        isInline
-                                        title={check.result.ok
-                                            ? `Access OK — ${check.result.target}${check.result.port ? ` (port ${check.result.port})` : ""}`
-                                            : "Access check failed"}
-                                    >
-                                        <ul className="check-list">
-                                            {check.result.checks.map((c, i) => (
-                                                <li key={i} className={c.ok ? "ok" : "fail"}>
-                                                    {c.ok
-                                                        ? <CheckCircleIcon className="ok-icon" />
-                                                        : <TimesCircleIcon className="fail-icon" />}
-                                                    {" "}<strong>{c.name}:</strong> {c.detail}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                        {check.result.hint && (
-                                            <Content component={ContentVariants.small}>
-                                                {check.result.hint}
-                                            </Content>
-                                        )}
-                                        {hostKeyProblem && (
-                                            <div style={{ marginTop: "0.5rem" }}>
-                                                <Button variant="secondary"
-                                                    icon={hostkey?.scanning ? <Spinner size="sm" /> : undefined}
-                                                    isDisabled={!!hostkey?.scanning}
-                                                    onClick={scanHostKeys}>
-                                                    {hostkey?.scanning ? "Scanning…" : "Accept host key"}
-                                                </Button>
-                                                {hostkey?.error && (
-                                                    <Content component={ContentVariants.small}>
-                                                        {hostkey.error}
-                                                    </Content>
-                                                )}
-                                            </div>
-                                        )}
-                                    </Alert>
-                                )}
-                            </FormGroup>
-
-                            <FormGroup label="SSH options" fieldId="sshopts"
-                                helperText='Extra options for ssh, e.g. "-p 2222 -i /root/key".'>
-                                <TextInput id="sshopts" value={form.REMOTE_SSH_OPTS}
-                                    onChange={(_e, v) => set({ REMOTE_SSH_OPTS: v })} />
-                            </FormGroup>
-
-                            <FormGroup label="Dedicated SSH key" fieldId="sshkey"
-                                helperText="While a dedicated key exists it is used automatically for mirroring (root's default keys are ignored). Append the public key to ~/.ssh/authorized_keys of the target user on the remote host.">
-                                {keyInfo?.exists ? (
-                                    <Flex direction={{ default: "column" }} gap={{ default: "gapSm" }}>
-                                        <Flex gap={{ default: "gapSm" }}>
-                                            <FlexItem grow={{ default: "grow" }}>
-                                                <TextInput isReadOnly id="pubkey" value={keyInfo.public_key} className="mono-input" />
-                                            </FlexItem>
-                                            <FlexItem>
-                                                <Button variant="secondary" onClick={copyPubKey}>
-                                                    {copied ? "Copied" : "Copy"}
-                                                </Button>
-                                            </FlexItem>
-                                        </Flex>
-                                        <HelperText>
-                                            <HelperTextItem>
-                                                {keyInfo.fingerprint || "fingerprint unavailable"}
-                                                {keyInfo.generated_at && ` · generated ${keyInfo.generated_at}`}
-                                            </HelperTextItem>
-                                        </HelperText>
-                                        <Flex gap={{ default: "gapSm" }}>
-                                            <FlexItem>
-                                                <Button variant="warning" isDisabled={!!keyBusy}
-                                                    onClick={() => setKeyConfirm("regenerate")}>
-                                                    Regenerate
-                                                </Button>
-                                            </FlexItem>
-                                            <FlexItem>
-                                                <Button variant="danger" isDisabled={!!keyBusy}
-                                                    onClick={() => setKeyConfirm("delete")}>
-                                                    Delete
-                                                </Button>
-                                            </FlexItem>
-                                            {keyBusy && <FlexItem><Spinner size="md" /></FlexItem>}
-                                        </Flex>
-                                    </Flex>
-                                ) : (
-                                    <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
-                                        <FlexItem>
-                                            <Button variant="secondary" isDisabled={!!keyBusy || keyInfo?.unavailable}
-                                                onClick={() => keyAction("generate")}>
-                                                Generate key
-                                            </Button>
-                                        </FlexItem>
-                                        {keyBusy && <FlexItem><Spinner size="md" /></FlexItem>}
-                                        <FlexItem>
-                                            <HelperText><HelperTextItem>
-                                                {keyInfo?.unavailable
-                                                    ? "Key management is unavailable (helper too old — update it with sudo make install-helper)."
-                                                    : "No dedicated key — ssh falls back to root's default keys."}
-                                            </HelperTextItem></HelperText>
-                                        </FlexItem>
-                                    </Flex>
-                                )}
-                                {keyError && <Alert variant="danger" isInline title={keyError} style={{ marginTop: "0.5rem" }} />}
-                            </FormGroup>
-
-                            <FormGroup label="Local storage root" fieldId="storage"
-                                helperText="Directory for chains. Changing it does not move existing data — copy or clean up manually.">
-                                <TextInput id="storage" value={form.STORAGE_ROOT}
-                                    onChange={(_e, v) => set({ STORAGE_ROOT: v })} />
-                            </FormGroup>
-
-                            <Grid hasGutter md={3}>
-                                <GridItem>
-                                    <FormGroup label="Full copy every, days" fieldId="fulldays">
-                                        <TextInput id="fulldays" type="number" min="1"
-                                            value={form.FULL_EVERY_DAYS}
-                                            onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} />
-                                    </FormGroup>
-                                </GridItem>
-                                <GridItem>
-                                    <FormGroup label="Max increments per chain" fieldId="maxincs">
-                                        <TextInput id="maxincs" type="number" min="1"
-                                            value={form.MAX_INCS}
-                                            onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} />
-                                    </FormGroup>
-                                </GridItem>
-                                <GridItem>
-                                    <FormGroup label="Chains to keep" fieldId="keepchains">
-                                        <TextInput id="keepchains" type="number" min="1"
-                                            value={form.KEEP_CHAINS}
-                                            onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} />
-                                    </FormGroup>
-                                </GridItem>
-                                <GridItem>
-                                    <FormGroup label="Backup timeout, seconds" fieldId="timeout">
-                                        <TextInput id="timeout" type="number" min="60"
-                                            value={form.BACKUP_TIMEOUT}
-                                            onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} />
-                                    </FormGroup>
-                                </GridItem>
-                                <GridItem>
-                                    <FormGroup label="libvirt URI" fieldId="uri">
-                                        <TextInput id="uri" value={form.LIBVIRT_URI}
-                                            onChange={(_e, v) => set({ LIBVIRT_URI: v })} />
-                                    </FormGroup>
-                                </GridItem>
-                                <GridItem>
-                                    <FormGroup label="Integrity check" fieldId="qcheck">
-                                        <Switch id="qcheck"
-                                            label="qemu-img check before sending"
-                                            labelOff="Skip qemu-img check"
-                                            isChecked={form.QEMU_IMG_CHECK}
-                                            onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} />
-                                    </FormGroup>
-                                </GridItem>
-                            </Grid>
-
-                            <HelperText>
-                                <HelperTextItem>
-                                    A chain is rotated to a full copy when it is older than
-                                    {" "}{form.FULL_EVERY_DAYS} days or has {form.MAX_INCS} increments;
-                                    the {form.KEEP_CHAINS} newest chains are kept.
-                                </HelperTextItem>
-                            </HelperText>
-                        </Form>
-                    </CardBody>
-                    <CardFooter>
-                        <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
-                            <FlexItem>
-                                <Button variant="primary" onClick={save} isDisabled={saving}>
-                                    {saving ? "Saving…" : "Save configuration"}
-                                </Button>
-                            </FlexItem>
-                            <FlexItem>
-                                {saved && <Alert variant="success" isInline isPlain title="Saved" />}
-                                {error && <Alert variant="danger" isInline isPlain title={error} />}
-                            </FlexItem>
-                        </Flex>
-                    </CardFooter>
-                </Card>
-            </GridItem>
-            <Modal
-                isOpen={!!keyConfirm}
-                onClose={() => setKeyConfirm(null)}
-                variant="small"
-            >
-                <ModalHeader title={
-                    keyConfirm === "delete" ? "Delete the dedicated SSH key?" : "Regenerate the dedicated SSH key?"
-                } />
-                <ModalBody>
-                    <Content component={ContentVariants.p}>
-                        {keyConfirm === "delete"
-                            ? "The key pair is removed from this host. ssh falls back to root's default keys; remote hosts that only had the dedicated key will reject connections until you install another key."
-                            : "A new key pair replaces the current one. The old key stops working immediately — install the new public key on every remote host before the next sync, otherwise mirroring will fail (local copies are not affected)."}
-                    </Content>
-                </ModalBody>
-                <ModalFooter>
-                    <Button
-                        variant={keyConfirm === "delete" ? "danger" : "primary"}
-                        isDisabled={!!keyBusy}
-                        onClick={() => keyAction(keyConfirm)}
-                    >
-                        {keyConfirm === "delete" ? "Delete" : "Regenerate"}
-                    </Button>
-                    <Button variant="link" isDisabled={!!keyBusy} onClick={() => setKeyConfirm(null)}>
-                        Cancel
-                    </Button>
-                </ModalFooter>
-            </Modal>
-            <Modal
-                isOpen={!!hostkey?.scan}
-                onClose={() => setHostkey(null)}
-                variant="medium"
-            >
-                <ModalHeader
-                    title={hostkey?.scan
-                        ? "Trust " + hostkey.scan.host
-                          + (hostkey.scan.port ? ":" + hostkey.scan.port : "") + "?"
-                        : ""}
-                />
-                <ModalBody>
-                    <Content component={ContentVariants.p}>
-                        These are the host keys the remote server presents. If
-                        you have another way to verify them (console, the
-                        provider panel, the host's own <code>ssh-keygen -lf
-                        /etc/ssh/ssh_host_*.pub</code>), compare the
-                        fingerprints first — accepting them without checking
-                        trusts this server on first use.
-                    </Content>
-                    <pre className="log-tail mono-input" style={{ maxHeight: "14rem" }}>
-                        {hostkey?.scan?.keys?.map(k =>
-                            `${k.already_known ? "[known]  " : "[new]      "}${k.fingerprint}`).join("\n") || ""}
-                    </pre>
-                    {hostkey?.error && (
-                        <Alert variant="danger" isInline title={hostkey.error} />
                     )}
+                    <table className="vm-table">
+                        <thead>
+                            <tr>
+                                <th>VM</th><th>State</th><th>Remote</th><th>Key</th>
+                                <th>Next run</th><th>Last result</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {editing === "new" && (
+                                <tr className="edit-row"><td colSpan={7}>
+                                    <EntryForm vm="" isNew unconfigured={unconfigured}
+                                        defaults={status.defaults}
+                                        onCancel={() => setEditing(null)}
+                                        onSaved={() => { setEditing(null); refresh(); }} />
+                                </td></tr>
+                            )}
+                            {entries.map(e => (
+                                <React.Fragment key={e.vm}>
+                                    <tr>
+                                        <td><strong>{e.vm}</strong>{!e.in_config && <Label color="orange" style={{ marginLeft: "0.5rem" }}>no config</Label>}</td>
+                                        <td>{e.state}</td>
+                                        <td>{e.config.REMOTE_TARGET
+                                            ? <span title={e.config.REMOTE_TARGET}>{e.config.REMOTE_TARGET.split(":")[0]}</span>
+                                            : <Label color="grey">local only</Label>}</td>
+                                        <td>{e.key.exists
+                                            ? <Label color="green">dedicated</Label>
+                                            : <Label color="grey">default</Label>}</td>
+                                        <td>{e.next_action || "—"}</td>
+                                        <td>{e.last_run ? e.last_run.status : "—"}</td>
+                                        <td>
+                                            <Flex gap={{ default: "gapSm" }}>
+                                                <FlexItem>
+                                                    <Button variant="secondary" size="sm" isDisabled={!!editing}
+                                                        onClick={() => setEditing(e.vm)}>Edit</Button>
+                                                </FlexItem>
+                                                {e.in_config && (
+                                                    <FlexItem>
+                                                        <Button variant="plain" size="sm" isDanger aria-label={`Delete ${e.vm}`}
+                                                            isDisabled={!!editing} onClick={() => setDeleteVm(e.vm)}>Delete</Button>
+                                                    </FlexItem>
+                                                )}
+                                            </Flex>
+                                        </td>
+                                    </tr>
+                                    {editing === e.vm && (
+                                        <tr className="edit-row"><td colSpan={7}>
+                                            <EntryForm vm={e.vm} isNew={false} initial={e.config}
+                                                defaults={status.defaults}
+                                                onCancel={() => setEditing(null)}
+                                                onSaved={() => { setEditing(null); refresh(); }} />
+                                        </td></tr>
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </tbody>
+                    </table>
+                </CardBody>
+            </Card>
+
+            <DefaultsCard />
+
+            <Modal isOpen={!!deleteVm} onClose={() => setDeleteVm(null)} variant="small">
+                <ModalHeader title={`Delete configuration ${deleteVm || ""}?`} />
+                <ModalBody>
+                    <Content component={ContentVariants.p}>
+                        Removes this VM's replication configuration file. Existing chains on
+                        disk and the SSH key are kept.
+                    </Content>
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="primary" isDisabled={!!hostkey?.accepting}
-                        onClick={acceptHostKeys}>
-                        {hostkey?.accepting ? "Adding…" : "Accept and re-check"}
-                    </Button>
-                    <Button variant="link" isDisabled={!!hostkey?.accepting}
-                        onClick={() => setHostkey(null)}>
-                        Cancel
-                    </Button>
+                    <Button variant="danger" isDisabled={deleting} onClick={doDelete}>Delete</Button>
+                    <Button variant="link" isDisabled={deleting} onClick={() => setDeleteVm(null)}>Cancel</Button>
                 </ModalFooter>
             </Modal>
-        </Grid>
+        </Flex>
     );
 }

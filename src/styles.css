@@ -79,3 +79,14 @@
     font-family: var(--pf-t--global--font--family--mono, monospace);
     font-size: 0.8rem;
 }
+
+/* inline configuration editor expanded within the table row */
+.edit-row > td {
+    white-space: normal;
+    padding: 1rem 0.5rem;
+    background: var(--pf-t--global--background--color--secondary--default, #f2f2f2);
+}
+
+.entry-editor {
+    max-width: 60rem;
+}
