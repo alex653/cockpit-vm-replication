@@ -12,7 +12,42 @@
     padding: 0.45rem 0.75rem 0.45rem 0;
     border-bottom: 1px solid var(--pf-t--global--border--color--default, #e0e0e0);
     vertical-align: middle;
-    white-space: nowrap;
+    /* wrap instead of forcing horizontal scrolling on narrow screens */
+    white-space: normal;
+}
+
+/* headers wrap at spaces; a column never gets narrower than its longest
+   header word, so headers don't break mid-word */
+.vm-table th {
+    min-width: min-content;
+}
+
+/* cell values: long tokens (VM names, hostnames, chain names) may break
+   anywhere instead of pushing the table wider than the card */
+.vm-table td {
+    overflow-wrap: anywhere;
+}
+
+/* the name column stays readable */
+.vm-table td:first-child {
+    min-width: 9ch;
+}
+
+/* button rows wrap onto the next line on narrow screens */
+.pf-v6-c-action-list {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+}
+
+/* compact tables on small screens */
+@media (max-width: 768px) {
+    .vm-table {
+        font-size: 0.8rem;
+    }
+    .vm-table th,
+    .vm-table td {
+        padding: 0.35rem 0.4rem 0.35rem 0;
+    }
 }
 
 .vm-table thead th {
@@ -49,7 +84,6 @@
 
 /* horizontal tab strip shown when the app is embedded in the Cockpit shell */
 .app-subnav {
-    border-bottom: 1px solid var(--pf-t--global--border--color--default, #e0e0e0);
     background: var(--pf-t--global--background--color--primary--default, transparent);
 }
 

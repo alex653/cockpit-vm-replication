@@ -1,0 +1,828 @@
+# Russian translations for the cockpit-vm-replication package.
+# This file is compiled to po.ru.js at build time; cockpit-ws serves it as
+# po.js when the Cockpit session language is Russian.
+# Terminology follows README.ru.md: хелпер, цепочка, инкремент, чекпоинт,
+# холодная копия.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: cockpit-vm-replication 2.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: 2026-10-27 19:30+0000\n"
+"Last-Translator: \n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+# ---------------------------------------------------------------- app.jsx ---
+#: src/app.jsx:23
+msgid "Overview"
+msgstr "Обзор"
+
+#: src/app.jsx:24
+msgid "VMs & Chains"
+msgstr "ВМ и цепочки"
+
+#: src/app.jsx:25
+msgid "Configuration"
+msgstr "Настройка"
+
+#: src/app.jsx:26
+msgid "Restore"
+msgstr "Восстановление"
+
+#: src/app.jsx:27
+msgid "Journal"
+msgstr "Журнал"
+
+#: src/app.jsx:105
+msgid "Toggle navigation"
+msgstr "Показать или скрыть навигацию"
+
+#: src/app.jsx:130
+msgid "Sections"
+msgstr "Разделы"
+
+#: src/app.jsx:147
+msgid "Skip to content"
+msgstr "Перейти к содержимому"
+
+#: src/app.jsx:173
+msgid "Cannot talk to the replication helper"
+msgstr "Не удаётся обратиться к хелперу репликации"
+
+#: src/app.jsx:179
+msgid "Make sure the helper is installed:"
+msgstr "Убедитесь, что хелпер установлен:"
+
+#: src/app.jsx:180
+msgid "and that your user may run it via sudo (see the README)."
+msgstr "и что ваш пользователь может запускать его через sudo (см. README)."
+
+#: src/app.jsx:186
+msgid "Operation failed"
+msgstr "Операция завершилась ошибкой"
+
+#: src/app.jsx:196
+msgid "Replication scripts are not installed"
+msgstr "Скрипты репликации не установлены"
+
+#: src/app.jsx:197
+msgid "were not found."
+msgstr "не найдены."
+
+#: src/app.jsx:198
+msgid "Install them with"
+msgstr "Установите их командой"
+
+#: src/app.jsx:198
+msgid "from this project."
+msgstr "из каталога этого проекта."
+
+# ----------------------------------------------------------------- api.js ---
+#: src/api.js:39
+msgid "unknown error"
+msgstr "неизвестная ошибка"
+
+#: src/api.js:81
+msgid "{n} sec ago"
+msgid_plural "{n} secs ago"
+msgstr[0] "{n} секунду назад"
+msgstr[1] "{n} секунды назад"
+msgstr[2] "{n} секунд назад"
+
+#: src/api.js:82
+msgid "{n} min ago"
+msgid_plural "{n} mins ago"
+msgstr[0] "{n} минуту назад"
+msgstr[1] "{n} минуты назад"
+msgstr[2] "{n} минут назад"
+
+#: src/api.js:83
+msgid "{n} h ago"
+msgid_plural "{n} hs ago"
+msgstr[0] "{n} ч. назад"
+msgstr[1] "{n} ч. назад"
+msgstr[2] "{n} ч. назад"
+
+#: src/api.js:84
+msgid "{n} d ago"
+msgid_plural "{n} ds ago"
+msgstr[0] "{n} дн. назад"
+msgstr[1] "{n} дн. назад"
+msgstr[2] "{n} дн. назад"
+
+# ---------------------------------------------------------- overview.jsx ---
+#: src/views/overview.jsx:17
+msgctxt "vm-state"
+msgid "running"
+msgstr "работает"
+
+#: src/views/overview.jsx:18
+msgctxt "vm-state"
+msgid "shut off"
+msgstr "выключена"
+
+#: src/views/overview.jsx:19
+msgctxt "vm-state"
+msgid "missing"
+msgstr "отсутствует"
+
+#: src/views/overview.jsx:26
+msgctxt "run-status"
+msgid "running"
+msgstr "выполняется"
+
+#: src/views/overview.jsx:27
+msgctxt "run-status"
+msgid "error"
+msgstr "ошибка"
+
+#: src/views/overview.jsx:28
+msgctxt "run-status"
+msgid "warning"
+msgstr "предупреждение"
+
+#: src/views/overview.jsx:29
+msgctxt "run-status"
+msgid "ok"
+msgstr "успешно"
+
+#: src/views/overview.jsx:88
+msgid "Last replication of {name} failed ({time})"
+msgstr "Последняя репликация {name} завершилась ошибкой ({time})"
+
+#: src/views/overview.jsx:94
+msgid "Hourly replication timer is not active"
+msgstr "Почасовой таймер репликации не активен"
+
+#: src/views/overview.jsx:95
+msgid "Copies are only made on manual runs. Start the timer below or with"
+msgstr "Копии создаются только при ручном запуске. Запустите таймер ниже или командой"
+
+#: src/views/overview.jsx:100
+msgid "{n} configuration has no remote target — its copies stay on this host"
+msgid_plural "{n} configurations have no remote target — their copies stay on this host"
+msgstr[0] "У {n} конфигурации нет удалённой цели — её копии остаются на этом узле"
+msgstr[1] "У {n} конфигураций нет удалённой цели — их копии остаются на этом узле"
+msgstr[2] "У {n} конфигураций нет удалённой цели — их копии остаются на этом узле"
+
+#: src/views/overview.jsx:103
+msgid "set a Remote target on the Configuration tab to mirror over rsync/ssh."
+msgstr "задайте «Удалённую цель» на вкладке «Настройка», чтобы зеркалировать копии по rsync/ssh."
+
+#: src/views/overview.jsx:111
+msgid "Replication job"
+msgstr "Задание репликации"
+
+#: src/views/overview.jsx:116
+msgid "Hourly timer"
+msgstr "Почасовой таймер"
+
+#: src/views/overview.jsx:122
+msgctxt "timer"
+msgid "active"
+msgstr "активен"
+
+#: src/views/overview.jsx:122
+msgctxt "timer"
+msgid "inactive"
+msgstr "неактивен"
+
+#: src/views/overview.jsx:124
+msgid "unknown"
+msgstr "неизвестно"
+
+#: src/views/overview.jsx:130
+msgid "Next run"
+msgstr "Следующий запуск"
+
+#: src/views/overview.jsx:136
+msgid "Last trigger"
+msgstr "Последний запуск"
+
+#: src/views/overview.jsx:140
+msgid "result: {result}"
+msgstr "результат: {result}"
+
+#: src/views/overview.jsx:145
+msgid "Status now"
+msgstr "Статус сейчас"
+
+#: src/views/overview.jsx:147
+msgid "replication is running"
+msgstr "репликация выполняется"
+
+#: src/views/overview.jsx:148
+msgid "idle"
+msgstr "простаивает"
+
+#: src/views/overview.jsx:164
+msgid "Run now (all VMs)"
+msgstr "Запустить сейчас (все ВМ)"
+
+#: src/views/overview.jsx:174
+msgid "Pause timer"
+msgstr "Приостановить таймер"
+
+#: src/views/overview.jsx:174
+msgid "Start timer"
+msgstr "Запустить таймер"
+
+#: src/views/overview.jsx:178
+msgid "Open journal"
+msgstr "Открыть журнал"
+
+#: src/views/overview.jsx:188
+msgid "Storage"
+msgstr "Хранилище"
+
+#: src/views/overview.jsx:193
+msgid "Local storage"
+msgstr "Локальное хранилище"
+
+#: src/views/overview.jsx:197
+msgid "(missing)"
+msgstr "(отсутствует)"
+
+#: src/views/overview.jsx:203
+msgid "Space"
+msgstr "Место"
+
+#: src/views/overview.jsx:206
+msgid "{free} free of {total}"
+msgstr "свободно {free} из {total}"
+
+#: src/views/overview.jsx:213
+msgid "Volume usage"
+msgstr "Использование тома"
+
+#: src/views/overview.jsx:221
+msgid "Configurations"
+msgstr "Конфигурации"
+
+#: src/views/overview.jsx:233
+msgid "Virtual machines"
+msgstr "Виртуальные машины"
+
+#: src/views/overview.jsx:239
+msgid "VM"
+msgstr "ВМ"
+
+#: src/views/overview.jsx:240
+msgid "State"
+msgstr "Состояние"
+
+#: src/views/overview.jsx:241
+msgid "In config"
+msgstr "В конфигурации"
+
+#: src/views/overview.jsx:242
+msgid "Remote"
+msgstr "Удалённая цель"
+
+#: src/views/overview.jsx:243
+msgid "Active chain"
+msgstr "Активная цепочка"
+
+#: src/views/overview.jsx:244
+msgid "Increments"
+msgstr "Инкременты"
+
+#: src/views/overview.jsx:245
+msgid "Chain size"
+msgstr "Размер цепочки"
+
+#: src/views/overview.jsx:246
+msgid "Last backup"
+msgstr "Последняя копия"
+
+#: src/views/overview.jsx:247
+msgid "Next run will do"
+msgstr "При следующем запуске"
+
+#: src/views/overview.jsx:248
+msgid "Last result"
+msgstr "Последний результат"
+
+#: src/views/overview.jsx:254
+msgid "No replicated VMs yet — add some on the Configuration tab."
+msgstr "Реплицируемых ВМ пока нет — добавьте их на вкладке «Настройка»."
+
+#: src/views/overview.jsx:262
+msgid "yes"
+msgstr "да"
+
+#: src/views/overview.jsx:262
+msgid "no"
+msgstr "нет"
+
+#: src/views/overview.jsx:267
+msgid "local only"
+msgstr "только локально"
+
+#: src/views/overview.jsx:285
+msgid "full copy"
+msgstr "полная копия"
+
+#: src/views/overview.jsx:285
+msgid "increment"
+msgstr "инкремент"
+
+#: src/views/overview.jsx:298
+msgid "Run"
+msgstr "Запустить"
+
+#: src/views/overview.jsx:317
+msgid "Run replication now?"
+msgstr "Запустить репликацию сейчас?"
+
+#: src/views/overview.jsx:319
+msgid "will run for every VM in the configuration. Running VMs get an incremental backup; stopped VMs get a cold copy. The job can take a while and its output appears in the Journal tab."
+msgstr "будет запущен для каждой ВМ из конфигурации. Для работающих ВМ создаётся инкрементальная копия, для выключенных — холодная копия. Задание может занять время; его вывод появится на вкладке «Журнал»."
+
+#: src/views/overview.jsx:325
+msgid "Cancel"
+msgstr "Отмена"
+
+# ----------------------------------------------------------- chains.jsx ---
+#: src/views/chains.jsx:41
+msgid "{name} exists on this host but is not in the replication config"
+msgstr "{name} есть на этом узле, но отсутствует в конфигурации репликации"
+
+#: src/views/chains.jsx:42
+msgid "Add it on the"
+msgstr "Добавьте её на вкладке"
+
+#: src/views/chains.jsx:43
+msgid "tab."
+msgstr "."
+
+#: src/views/chains.jsx:47
+msgid "Nothing replicated yet"
+msgstr "Пока ничего не реплицируется"
+
+#: src/views/chains.jsx:48
+msgid "Add VMs on the Configuration tab first."
+msgstr "Сначала добавьте ВМ на вкладке «Настройка»."
+
+#: src/views/chains.jsx:69
+msgid "Replicate now"
+msgstr "Реплицировать сейчас"
+
+#: src/views/chains.jsx:84
+msgid "checkpoint: {name}"
+msgstr "чекпоинт: {name}"
+
+#: src/views/chains.jsx:92
+msgid "No copies yet — run replication to create the first chain."
+msgstr "Копий пока нет — запустите репликацию, чтобы создать первую цепочку."
+
+#: src/views/chains.jsx:99
+msgid "Chain"
+msgstr "Цепочка"
+
+#: src/views/chains.jsx:100
+msgid "Kind"
+msgstr "Тип"
+
+#: src/views/chains.jsx:101
+msgid "Created"
+msgstr "Создана"
+
+#: src/views/chains.jsx:102
+msgid "Full copy"
+msgstr "Полная копия"
+
+#: src/views/chains.jsx:104
+msgid "Increment data"
+msgstr "Данные инкрементов"
+
+#: src/views/chains.jsx:105
+msgid "Total"
+msgstr "Всего"
+
+#: src/views/chains.jsx:118
+msgctxt "chain"
+msgid "active"
+msgstr "активная"
+
+#: src/views/chains.jsx:122
+msgctxt "kind"
+msgid "cold"
+msgstr "холодная"
+
+#: src/views/chains.jsx:122
+msgctxt "kind"
+msgid "chain"
+msgstr "цепочка"
+
+#: src/views/chains.jsx:153
+msgid "Delete chain {name}"
+msgstr "Удалить цепочку {name}"
+
+#: src/views/chains.jsx:182
+msgid "Delete chain {name}?"
+msgstr "Удалить цепочку {name}?"
+
+#: src/views/chains.jsx:186
+msgid "This is the active chain"
+msgstr "Это активная цепочка"
+
+#: src/views/chains.jsx:188
+msgid "After deleting it the next replication run will make a new full copy, and stale checkpoints will be pruned."
+msgstr "После удаления следующий запуск репликации создаст новую полную копию, а лишние чекпоинты будут удалены."
+
+#: src/views/chains.jsx:192
+msgid "All files of this chain (full copy, increments, metadata) will be permanently deleted from local storage. If a remote mirror is configured, it will be cleaned on the next successful run."
+msgstr "Все файлы этой цепочки (полная копия, инкременты, метаданные) будут безвозвратно удалены из локального хранилища. Если настроено удалённое зеркало, оно будет очищено при следующем успешном запуске."
+
+#: src/views/chains.jsx:202
+msgid "Delete"
+msgstr "Удалить"
+
+#: src/views/chains.jsx:156
+msgctxt "verb"
+msgid "Restore"
+msgstr "Восстановить"
+
+# ----------------------------------------------------------- config.jsx ---
+#: src/views/config.jsx:55
+msgid "Copied"
+msgstr "Скопировано"
+
+#: src/views/config.jsx:55
+msgid "Copy"
+msgstr "Копировать"
+
+#: src/views/config.jsx:60
+msgid "fingerprint unavailable"
+msgstr "отпечаток недоступен"
+
+#: src/views/config.jsx:63
+msgid "Regenerate"
+msgstr "Сгенерировать заново"
+
+#: src/views/config.jsx:70
+msgid "Generate key"
+msgstr "Сгенерировать ключ"
+
+#: src/views/config.jsx:72
+msgid "No dedicated key — ssh falls back to root's default keys."
+msgstr "Отдельного ключа нет — ssh использует ключи root по умолчанию."
+
+#: src/views/config.jsx:78
+msgid "Delete this profile's SSH key?"
+msgstr "Удалить SSH-ключ этого профиля?"
+
+#: src/views/config.jsx:78
+msgid "Regenerate this profile's SSH key?"
+msgstr "Сгенерировать SSH-ключ этого профиля заново?"
+
+#: src/views/config.jsx:82
+msgid "The key pair is removed. ssh falls back to root's default keys; remote hosts that only had this key will reject connections."
+msgstr "Пара ключей будет удалена. ssh будет использовать ключи root по умолчанию; удалённые узлы, которым был известен только этот ключ, отклонят подключения."
+
+#: src/views/config.jsx:84
+msgid "A new key pair replaces the current one. The old key stops working immediately — install the new public key on the remote host before the next sync."
+msgstr "Новая пара ключей заменит текущую. Старый ключ перестанет работать немедленно — установите новый публичный ключ на удалённом узле до следующей синхронизации."
+
+#: src/views/config.jsx:140
+msgid "Checking…"
+msgstr "Проверка…"
+
+#: src/views/config.jsx:140
+msgid "Check access"
+msgstr "Проверить доступ"
+
+#: src/views/config.jsx:146
+msgid "Access OK — {target}"
+msgstr "Доступ в порядке — {target}"
+
+#: src/views/config.jsx:147
+msgid " (port {port})"
+msgstr " (порт {port})"
+
+#: src/views/config.jsx:147
+msgid "Access check failed"
+msgstr "Проверка доступа не удалась"
+
+#: src/views/config.jsx:162
+msgid "Scanning…"
+msgstr "Сканирование…"
+
+#: src/views/config.jsx:162
+msgid "Accept host key"
+msgstr "Принять ключ узла"
+
+#: src/views/config.jsx:170
+msgid "Trust {host}?"
+msgstr "Доверять {host}?"
+
+#: src/views/config.jsx:173
+msgid "These are the host keys the remote server presents. Verify them out-of-band if you can; accepting trusts this server on first use."
+msgstr "Это ключи узла, которые предъявляет удалённый сервер. По возможности сверьте их по независимому каналу; после принятия этому серверу будет доверяться при первом использовании."
+
+#: src/views/config.jsx:178
+msgid "[known]"
+msgstr "[известен]"
+
+#: src/views/config.jsx:178
+msgid "[new]"
+msgstr "[новый]"
+
+#: src/views/config.jsx:184
+msgid "Adding…"
+msgstr "Добавление…"
+
+#: src/views/config.jsx:184
+msgid "Accept and re-check"
+msgstr "Принять и проверить снова"
+
+#: src/views/config.jsx:217
+msgid "Choose a VM first"
+msgstr "Сначала выберите ВМ"
+
+#: src/views/config.jsx:246
+msgid "Virtual machine"
+msgstr "Виртуальная машина"
+
+#: src/views/config.jsx:249
+msgid "— select a VM —"
+msgstr "— выберите ВМ —"
+
+#: src/views/config.jsx:254
+msgid "Every running VM already has a configuration."
+msgstr "Для каждой работающей ВМ уже есть конфигурация."
+
+#: src/views/config.jsx:263
+msgid "Remote target"
+msgstr "Удалённая цель"
+
+#: src/views/config.jsx:264
+msgid "Empty = keep local copies only. Port goes into SSH options (-p <port>)."
+msgstr "Пусто = хранить копии только локально. Порт указывается в опциях SSH (-p <порт>)."
+
+#: src/views/config.jsx:269
+msgid "SSH options"
+msgstr "Опции SSH"
+
+#: src/views/config.jsx:274
+msgid "Access check"
+msgstr "Проверка доступа"
+
+#: src/views/config.jsx:278
+msgid "Dedicated SSH key"
+msgstr "Отдельный SSH-ключ"
+
+#: src/views/config.jsx:279
+msgid "Used automatically for this configuration while it exists."
+msgstr "Используется автоматически для этой конфигурации, пока существует."
+
+#: src/views/config.jsx:283
+msgid "Local storage root"
+msgstr "Корень локального хранилища"
+
+#: src/views/config.jsx:288
+msgid "Full copy every, days"
+msgstr "Полная копия каждые, дней"
+
+#: src/views/config.jsx:291
+msgid "Max increments"
+msgstr "Макс. инкрементов"
+
+#: src/views/config.jsx:293
+msgid "Chains to keep"
+msgstr "Хранить цепочек"
+
+#: src/views/config.jsx:296
+msgid "Backup timeout, s"
+msgstr "Тайм-аут копирования, с"
+
+#: src/views/config.jsx:299
+msgid "Integrity check"
+msgstr "Проверка целостности"
+
+#: src/views/config.jsx:301
+msgid "qemu-img check before sending"
+msgstr "qemu-img check перед отправкой"
+
+#: src/views/config.jsx:311
+msgid "Saving…"
+msgstr "Сохранение…"
+
+#: src/views/config.jsx:311
+msgid "Add configuration"
+msgstr "Добавить конфигурацию"
+
+#: src/views/config.jsx:311
+msgid "Save changes"
+msgstr "Сохранить изменения"
+
+#: src/views/config.jsx:364
+msgid "Hide"
+msgstr "Скрыть"
+
+#: src/views/config.jsx:363
+msgid "Edit"
+msgstr "Изменить"
+
+#: src/views/config.jsx:365
+msgid "Global defaults"
+msgstr "Глобальные значения по умолчанию"
+
+#: src/views/config.jsx:369
+msgid "libvirt URI"
+msgstr "URI libvirt"
+
+#: src/views/config.jsx:369
+msgid "· default storage"
+msgstr "· хранилище по умолчанию"
+
+#: src/views/config.jsx:371
+msgid "· full every {days}d / max {incs} incr. / keep {chains} — used to seed new configurations."
+msgstr "· полная копия каждые {days} дн. / макс. {incs} инкр. / хранить {chains} — используются как отправная точка для новых конфигураций."
+
+#: src/views/config.jsx:378
+msgid "Default storage root"
+msgstr "Корень хранилища по умолчанию"
+
+#: src/views/config.jsx:379
+msgid "Full every, days"
+msgstr "Полная копия каждые, дней"
+
+#: src/views/config.jsx:382
+msgid "qemu-img check"
+msgstr "Проверка qemu-img"
+
+#: src/views/config.jsx:385
+msgid "Save defaults"
+msgstr "Сохранить значения по умолчанию"
+
+#: src/views/config.jsx:427
+msgid "Replication configurations"
+msgstr "Конфигурации репликации"
+
+#: src/views/config.jsx:432
+msgid "No configurations yet — add one to replicate a VM with its own remote target and SSH key."
+msgstr "Конфигураций пока нет — добавьте одну, чтобы реплицировать ВМ с собственной удалённой целью и SSH-ключом."
+
+#: src/views/config.jsx:440
+msgid "Key"
+msgstr "Ключ"
+
+#: src/views/config.jsx:456
+msgid "no config"
+msgstr "нет конфигурации"
+
+#: src/views/config.jsx:461
+msgid "dedicated"
+msgstr "отдельный"
+
+#: src/views/config.jsx:461
+msgid "default"
+msgstr "по умолчанию"
+
+#: src/views/config.jsx:473
+msgid "Delete {vm}"
+msgstr "Удалить {vm}"
+
+#: src/views/config.jsx:498
+msgid "Delete configuration {vm}?"
+msgstr "Удалить конфигурацию {vm}?"
+
+#: src/views/config.jsx:501
+msgid "Removes this VM's replication configuration file. Existing chains on disk and the SSH key are kept."
+msgstr "Удаляет файл конфигурации репликации этой ВМ. Существующие цепочки на диске и SSH-ключ сохраняются."
+
+# ---------------------------------------------------------- restore.jsx ---
+#: src/views/restore.jsx:97
+msgid "Restore a chain into one qcow2 image"
+msgstr "Восстановление цепочки в один образ qcow2"
+
+#: src/views/restore.jsx:101
+msgid "Runs"
+msgstr "Выполняет"
+
+#: src/views/restore.jsx:102
+msgid ": rebases the increments onto the full copy and flattens the result into a single image. The chain files themselves are not modified. Typical next steps afterwards:"
+msgstr ": перебазирует инкременты на полную копию и сводит результат в один образ. Сами файлы цепочки при этом не изменяются. Типичные следующие шаги:"
+
+#: src/views/restore.jsx:103
+msgid "(adjust the disk path) or import the image into another host."
+msgstr "(при необходимости скорректируйте путь к диску) или импортируйте образ на другой узел."
+
+#: src/views/restore.jsx:129
+msgid "{name} ({kind}, {n} incr., {size})"
+msgstr "{name} ({kind}, {n} инкр., {size})"
+
+#: src/views/restore.jsx:145
+msgid "· last backup"
+msgstr "· последняя копия"
+
+#: src/views/restore.jsx:146
+msgid "· needs about"
+msgstr "· потребуется около"
+
+#: src/views/restore.jsx:147
+msgid "of target space"
+msgstr "места под целевой образ"
+
+#: src/views/restore.jsx:151
+msgid "Target image path"
+msgstr "Путь к целевому образу"
+
+#: src/views/restore.jsx:152
+msgid "Must not exist yet; the directory has to exist."
+msgstr "Файл не должен существовать заранее; каталог должен существовать."
+
+#: src/views/restore.jsx:158
+msgid "Restore finished"
+msgstr "Восстановление завершено"
+
+#: src/views/restore.jsx:159
+msgid "Check the log below, then define the VM or attach the image."
+msgstr "Проверьте журнал ниже, затем определите ВМ или подключите образ."
+
+#: src/views/restore.jsx:169
+msgid "restore is running"
+msgstr "восстановление выполняется"
+
+#: src/views/restore.jsx:181
+msgid "Restore on the remote host"
+msgstr "Восстановление на удалённом узле"
+
+#: src/views/restore.jsx:186
+msgid "Chains are mirrored to the remote target as-is (full + increments +"
+msgstr "Цепочки зеркалируются на удалённую цель как есть (полная копия + инкременты +"
+
+#: src/views/restore.jsx:187
+msgid "+ a copy of"
+msgstr "+ копия"
+
+#: src/views/restore.jsx:188
+msgid "), so a disaster recovery usually happens there:"
+msgstr "), поэтому восстановление после сбоя обычно выполняется там:"
+
+#: src/views/restore.jsx:190
+msgid "# on the remote host"
+msgstr "# на удалённом узле"
+
+#: src/views/restore.jsx:193
+msgid "# adjust the disk path if needed, then:"
+msgstr "# при необходимости скорректируйте путь к диску, затем:"
+
+#: src/views/restore.jsx:198
+msgid "Restore log"
+msgstr "Журнал восстановления"
+
+#: src/views/restore.jsx:202
+msgid "— no restore jobs yet —"
+msgstr "— операций восстановления ещё не было —"
+
+#: src/views/restore.jsx:213
+msgid "Start restore?"
+msgstr "Запустить восстановление?"
+
+#: src/views/restore.jsx:217
+msgid "Flatten \"{chain}\" of {vm} ({stored} stored, about {result} result) into:"
+msgstr "Свести «{chain}» ВМ {vm} (занято {stored}, результат около {result}) в:"
+
+#: src/views/restore.jsx:219
+msgid "Flatten chain into:"
+msgstr "Свести цепочку в:"
+
+# ------------------------------------------------------------ logs.jsx ---
+#: src/views/logs.jsx:55
+msgid "Auto-refresh"
+msgstr "Автообновление"
+
+#: src/views/logs.jsx:62
+msgid "Number of lines"
+msgstr "Количество строк"
+
+#: src/views/logs.jsx:65
+msgid "{n} line"
+msgid_plural "{n} lines"
+msgstr[0] "{n} строка"
+msgstr[1] "{n} строки"
+msgstr[2] "{n} строк"
+
+#: src/views/logs.jsx:71
+msgid "Refresh"
+msgstr "Обновить"
+
+#: src/views/logs.jsx:75
+msgid "vm-replication journal"
+msgstr "Журнал vm-replication"
+
+#: src/views/logs.jsx:81
+msgid "Filter…"
+msgstr "Фильтр…"
+
+#: src/views/logs.jsx:96
+msgid "— no entries —"
+msgstr "— записей нет —"

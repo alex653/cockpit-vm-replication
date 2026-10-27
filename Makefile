@@ -14,7 +14,7 @@ UNITDIR ?= /etc/systemd/system
 
 build: dist/index.js
 
-dist/index.js: $(wildcard src/*) $(wildcard src/views/*) package.json node_modules
+dist/index.js: $(wildcard src/*) $(wildcard src/views/*) esbuild.mjs tools/cockpit-po-plugin.js $(wildcard po/*.po) package.json node_modules
 	npm run build
 
 node_modules: package.json
@@ -104,6 +104,7 @@ purge: uninstall
 	@echo "Purged. Replication data in STORAGE_ROOT was kept."
 
 check: build
+	node tools/check-po.mjs
 	node -e "const m=require('fs').readFileSync('dist/manifest.json'); JSON.parse(m); console.log('manifest OK')"
 
 clean:
@@ -112,5 +113,5 @@ clean:
 dist: build
 	tar --transform "s,^,cockpit-vm-replication-$(VERSION)/," \
 	    -czf cockpit-vm-replication-$(VERSION).tar.gz \
-	    dist helper scripts Makefile README.md README.ru.md LICENSE package.json
+	    dist helper scripts tools po Makefile esbuild.mjs README.md README.ru.md LICENSE package.json
 	@echo "Created cockpit-vm-replication-$(VERSION).tar.gz"

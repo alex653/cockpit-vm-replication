@@ -10,33 +10,51 @@ import {
     CheckCircleIcon, ExclamationCircleIcon, RedoIcon, SyncAltIcon,
 } from "@patternfly/react-icons";
 import { errorMessage, fmtBytes, fmtDateTime, helper, timeAgo } from "../api.js";
+import { t, tc, tn } from "../i18n.js";
 import { useStatus } from "../app.jsx";
 
-function stateLabel(state) {
-    if (state === "running") return <Label color="green">running</Label>;
-    if (state === "shut off") return <Label color="grey">shut off</Label>;
-    if (state === "missing") return <Label color="red">missing</Label>;
+export function vmStateText(state) {
+    if (state === "running") return tc("vm-state", "running");
+    if (state === "shut off") return tc("vm-state", "shut off");
+    if (state === "missing") return tc("vm-state", "missing");
+    return state;
+}
+
+export function vmStateLabel(state) {
+    if (state === "running") return <Label color="green">{vmStateText(state)}</Label>;
+    if (state === "shut off") return <Label color="grey">{vmStateText(state)}</Label>;
+    if (state === "missing") return <Label color="red">{vmStateText(state)}</Label>;
     return <Label color="orange">{state}</Label>;
+}
+
+export function runStatus(status) {
+    switch (status) {
+    case "running": return tc("run-status", "running");
+    case "error": return tc("run-status", "error");
+    case "warning": return tc("run-status", "warning");
+    case "ok": return tc("run-status", "ok");
+    default: return status;
+    }
 }
 
 function runIcon(run) {
     if (!run) return <span>—</span>;
-    if (run.status === "running") return <Spinner size="md" aria-label="running" />;
+    if (run.status === "running") return <Spinner size="md" aria-label={tc("run-status", "running")} />;
     if (run.status === "error")
         return (
             <span className="pf-v6-u-text-color-danger">
-                <ExclamationCircleIcon /> error
+                <ExclamationCircleIcon /> {tc("run-status", "error")}
             </span>
         );
     if (run.status === "warning")
         return (
             <span className="pf-v6-u-text-color-warning">
-                <ExclamationCircleIcon /> warning
+                <ExclamationCircleIcon /> {tc("run-status", "warning")}
             </span>
         );
     return (
         <span className="pf-v6-u-text-color-success">
-            <CheckCircleIcon /> ok
+            <CheckCircleIcon /> {tc("run-status", "ok")}
         </span>
     );
 }
@@ -85,65 +103,70 @@ export function Overview() {
                 <Alert
                     variant="danger"
                     isInline
-                    title={`Last replication of ${failedVm.name} failed (${timeAgo(failedVm.last_run.ts)})`}
+                    title={t("Last replication of {name} failed ({time})",
+                             { name: failedVm.name, time: timeAgo(failedVm.last_run.ts) })}
                 >
                     {failedVm.last_run.messages.slice(-2).join(" · ")}
                 </Alert>
             )}
             {!timer.active && (
-                <Alert variant="warning" isInline title="Hourly replication timer is not active">
-                    Copies are only made on manual runs. Start the timer below or with
+                <Alert variant="warning" isInline title={t("Hourly replication timer is not active")}>
+                    {t("Copies are only made on manual runs. Start the timer below or with")}
                     {" "}<code>systemctl start vm-replication.timer</code>.
                 </Alert>
             )}
             {configured.length > 0 && localOnly.length > 0 && (
-                <Alert variant="info" isInline title={`${localOnly.length} configuration(s) have no remote target — their copies stay on this host`}>
-                    {localOnly.map(v => v.name).join(", ")} — set a Remote target on the
-                    Configuration tab to mirror over rsync/ssh.
+                <Alert variant="info" isInline
+                    title={tn(localOnly.length,
+                              "{n} configuration has no remote target — its copies stay on this host",
+                              "{n} configurations have no remote target — their copies stay on this host",
+                              { n: localOnly.length })}>
+                    {localOnly.map(v => v.name).join(", ")} — {t(
+                        "set a Remote target on the Configuration tab to mirror over rsync/ssh.")}
                 </Alert>
             )}
 
             <Flex direction={{ default: "column" }} gap={{ default: "gapLg" }}>
-                <Flex>
-                    <FlexItem flex={{ default: "flex_2" }}>
+                <Flex direction={{ default: "column", md: "row" }} gap={{ default: "gapMd", md: "gapLg" }}>
+                    <FlexItem flex={{ md: "flex_2" }}>
                         <Card isFullHeight>
                             <CardHeader>
-                                <CardTitle>Replication job</CardTitle>
+                                <CardTitle>{t("Replication job")}</CardTitle>
                             </CardHeader>
                             <CardBody>
                                 <DescriptionList isCompact columnModifier={{ default: "2Col" }}>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Hourly timer</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Hourly timer")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             {toggling
                                                 ? <Spinner size="md" />
                                                 : <Label color={timer.active ? "green" : "red"}
                                                     onClick={toggleTimer} isClickable>
-                                                    {timer.active ? "active" : "inactive"}
+                                                    {timer.active ? tc("timer", "active") : tc("timer", "inactive")}
                                                 </Label>}
-                                            {" "}({timer.unit_file_state || "unknown"})
+                                            {" "}({timer.unit_file_state || t("unknown")})
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Next run</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Next run")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             {timer.next_elapse || "—"}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Last trigger</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Last trigger")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             {timer.last_trigger || "—"}
                                             {timer.service_result &&
-                                                ` · result: ${timer.service_result}`}
+                                                ` · ${t("result: {result}", { result: timer.service_result })}`}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Status now</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Status now")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             {status.busy
-                                                ? <><SyncAltIcon className="pf-v6-u-rotate-90 pf-v6-u-mr-sm" /> replication is running</>
-                                                : "idle"}
+                                                ? <><SyncAltIcon className="pf-v6-u-rotate-90 pf-v6-u-mr-sm" /> {t("replication is running")}</>
+                                                : t("idle")}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                 </DescriptionList>
@@ -160,7 +183,7 @@ export function Overview() {
                                             isDisabled={status.busy}
                                             onClick={() => setConfirmRun(true)}
                                         >
-                                            Run now (all VMs)
+                                            {t("Run now (all VMs)")}
                                         </Button>
                                     </ActionListItem>
                                     <ActionListItem>
@@ -169,53 +192,53 @@ export function Overview() {
                                             isDisabled={toggling}
                                             onClick={toggleTimer}
                                         >
-                                            {timer.active ? "Pause timer" : "Start timer"}
+                                            {timer.active ? t("Pause timer") : t("Start timer")}
                                         </Button>
                                     </ActionListItem>
                                     <ActionListItem>
                                         <Button variant="link" onClick={() => goto(null, "logs")}>
-                                            Open journal
+                                            {t("Open journal")}
                                         </Button>
                                     </ActionListItem>
                                 </ActionList>
                             </CardFooter>
                         </Card>
                     </FlexItem>
-                    <FlexItem flex={{ default: "flex_1" }}>
+                    <FlexItem flex={{ md: "flex_1" }}>
                         <Card isFullHeight>
                             <CardHeader>
-                                <CardTitle>Storage</CardTitle>
+                                <CardTitle>{t("Storage")}</CardTitle>
                             </CardHeader>
                             <CardBody>
                                 <DescriptionList isCompact>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Local storage</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Local storage")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             <code>{storage.root}</code>
                                             {!storage.exists && (
-                                                <span className="pf-v6-u-text-color-danger"> (missing)</span>
+                                                <span className="pf-v6-u-text-color-danger"> {t("(missing)")}</span>
                                             )}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Space</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Space")}</DescriptionListTerm>
                                         <DescriptionListDescription>
-                                            {fmtBytes(storage.free_bytes)} free of{" "}
-                                            {fmtBytes(storage.total_bytes)}
+                                            {t("{free} free of {total}",
+                                               { free: fmtBytes(storage.free_bytes), total: fmtBytes(storage.total_bytes) })}
                                         </DescriptionListDescription>
                                     </DescriptionListGroup>
                                 </DescriptionList>
                                 {usedPct !== null && (
                                     <Progress
                                         value={usedPct}
-                                        title="Volume usage"
+                                        title={t("Volume usage")}
                                         variant={usedPct > 90 ? "danger" : usedPct > 75 ? "warning" : undefined}
                                         style={{ marginTop: "0.5rem" }}
                                     />
                                 )}
                                 <DescriptionList isCompact style={{ marginTop: "1rem" }}>
                                     <DescriptionListGroup>
-                                        <DescriptionListTerm>Configurations</DescriptionListTerm>
+                                        <DescriptionListTerm>{t("Configurations")}</DescriptionListTerm>
                                         <DescriptionListDescription>
                                             {configured.length}
                                         </DescriptionListDescription>
@@ -228,42 +251,42 @@ export function Overview() {
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Virtual machines</CardTitle>
+                        <CardTitle>{t("Virtual machines")}</CardTitle>
                     </CardHeader>
                     <CardBody>
                         <table className="vm-table">
                             <thead>
                                 <tr>
-                                    <th>VM</th>
-                                    <th>State</th>
-                                    <th>In config</th>
-                                    <th>Remote</th>
-                                    <th>Active chain</th>
-                                    <th>Increments</th>
-                                    <th>Chain size</th>
-                                    <th>Last backup</th>
-                                    <th>Next run will do</th>
-                                    <th>Last result</th>
+                                    <th>{t("VM")}</th>
+                                    <th>{t("State")}</th>
+                                    <th>{t("In config")}</th>
+                                    <th>{t("Remote")}</th>
+                                    <th>{t("Active chain")}</th>
+                                    <th>{t("Increments")}</th>
+                                    <th>{t("Chain size")}</th>
+                                    <th>{t("Last backup")}</th>
+                                    <th>{t("Next run will do")}</th>
+                                    <th>{t("Last result")}</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {status.vms.length === 0 && (
-                                    <tr><td colSpan={11}>No replicated VMs yet — add some on the Configuration tab.</td></tr>
+                                    <tr><td colSpan={11}>{t("No replicated VMs yet — add some on the Configuration tab.")}</td></tr>
                                 )}
                                 {status.vms.map(vm => {
                                     const active = vm.chains.find(c => c.name === vm.active_chain);
                                     return (
                                         <tr key={vm.name}>
                                             <td><strong>{vm.name}</strong></td>
-                                            <td>{stateLabel(vm.state)}</td>
+                                            <td>{vmStateLabel(vm.state)}</td>
                                             <td>{vm.in_config
-                                                ? <Label color="green">yes</Label>
-                                                : <Label color="orange">no</Label>}</td>
+                                                ? <Label color="green">{t("yes")}</Label>
+                                                : <Label color="orange">{t("no")}</Label>}</td>
                                             <td>
                                                 {vm.config?.REMOTE_TARGET
                                                     ? <span title={vm.config.REMOTE_TARGET}>{vm.config.REMOTE_TARGET.split(":")[0]}</span>
-                                                    : <Label color="grey">local only</Label>}
+                                                    : <Label color="grey">{t("local only")}</Label>}
                                             </td>
                                             <td>
                                                 {active ? (
@@ -281,7 +304,7 @@ export function Overview() {
                                             <td>
                                                 {vm.next_action
                                                     ? <Label color={vm.next_action === "full" ? "purple" : "cyan"}>
-                                                        {vm.next_action === "full" ? "full copy" : "increment"}
+                                                        {vm.next_action === "full" ? t("full copy") : t("increment")}
                                                     </Label>
                                                     : "—"}
                                             </td>
@@ -295,7 +318,7 @@ export function Overview() {
                                                         .then(refresh)
                                                         .catch(e => setActionError(errorMessage(e)))}
                                                 >
-                                                    Run
+                                                    {t("Run")}
                                                 </Button>
                                             </td>
                                         </tr>
@@ -312,17 +335,15 @@ export function Overview() {
                 onClose={() => setConfirmRun(false)}
                 variant="small"
             >
-                <ModalHeader title="Run replication now?" />
+                <ModalHeader title={t("Run replication now?")} />
                 <ModalBody>
                     <Content component={ContentVariants.p}>
-                        <code>vm-replicate</code> will run for every VM in the configuration.
-                        Running VMs get an incremental backup; stopped VMs get a cold copy.
-                        The job can take a while and its output appears in the Journal tab.
+                        <code>vm-replicate</code> {t("will run for every VM in the configuration. Running VMs get an incremental backup; stopped VMs get a cold copy. The job can take a while and its output appears in the Journal tab.")}
                     </Content>
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="primary" onClick={runNow}>Run</Button>
-                    <Button variant="link" onClick={() => setConfirmRun(false)}>Cancel</Button>
+                    <Button variant="primary" onClick={runNow}>{t("Run")}</Button>
+                    <Button variant="link" onClick={() => setConfirmRun(false)}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </>

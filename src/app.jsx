@@ -7,6 +7,7 @@ import {
 } from "@patternfly/react-core";
 import { BarsIcon } from "@patternfly/react-icons";
 import { errorMessage, helper } from "./api.js";
+import { t } from "./i18n.js";
 import { Overview } from "./views/overview.jsx";
 import { Chains } from "./views/chains.jsx";
 import { ConfigView } from "./views/config.jsx";
@@ -20,11 +21,11 @@ export function useStatus() {
 }
 
 const TABS = [
-    { id: "overview", title: "Overview" },
-    { id: "chains", title: "VMs & Chains" },
-    { id: "config", title: "Configuration" },
-    { id: "restore", title: "Restore" },
-    { id: "logs", title: "Journal" },
+    { id: "overview", title: t("Overview") },
+    { id: "chains", title: t("VMs & Chains") },
+    { id: "config", title: t("Configuration") },
+    { id: "restore", title: t("Restore") },
+    { id: "logs", title: t("Journal") },
 ];
 
 export function App() {
@@ -33,7 +34,7 @@ export function App() {
     const [actionError, setActionError] = useState(null);
     const [tab, setTab] = useState(() => {
         const h = window.location.hash.replace(/^#\/?/, "");
-        return TABS.some(t => t.id === h) ? h : "overview";
+        return TABS.some(nav => nav.id === h) ? h : "overview";
     });
     const [sidebarOpen, setSidebarOpen] = useState(true);
     /* when embedded in the Cockpit shell it provides header and navigation */
@@ -64,7 +65,7 @@ export function App() {
     useEffect(() => {
         const onHash = () => {
             const h = window.location.hash.replace(/^#\/?/, "");
-            if (TABS.some(t => t.id === h)) setTab(h);
+            if (TABS.some(nav => nav.id === h)) setTab(h);
         };
         window.addEventListener("hashchange", onHash);
         return () => window.removeEventListener("hashchange", onHash);
@@ -101,7 +102,7 @@ export function App() {
                                 <Button
                                     variant="plain"
                                     onClick={() => setSidebarOpen(!sidebarOpen)}
-                                    aria-label="Toggle navigation"
+                                    aria-label={t("Toggle navigation")}
                                 >
                                     <BarsIcon />
                                 </Button>
@@ -126,16 +127,16 @@ export function App() {
                 sidebar={standalone ? (
                     <PageSidebar>
                         <PageSidebarBody>
-                            <Nav aria-label="Sections">
+                            <Nav aria-label={t("Sections")}>
                                 <NavList>
-                                    {TABS.map(t => (
+                                    {TABS.map(nav => (
                                         <NavItem
-                                            key={t.id}
-                                            isActive={tab === t.id}
-                                            onClick={e => { e.preventDefault(); switchTab(e, t.id); }}
-                                            href={`#/${t.id}`}
+                                            key={nav.id}
+                                            isActive={tab === nav.id}
+                                            onClick={e => { e.preventDefault(); switchTab(e, nav.id); }}
+                                            href={`#/${nav.id}`}
                                         >
-                                            {t.title}
+                                            {nav.title}
                                         </NavItem>
                                     ))}
                                 </NavList>
@@ -144,22 +145,22 @@ export function App() {
                     </PageSidebar>
                 ) : undefined}
                 isManagedSidebar
-                skipToContent={<SkipToContent>Skip to content</SkipToContent>}
+                skipToContent={<SkipToContent>{t("Skip to content")}</SkipToContent>}
             >
                 {!standalone && (
                     /* embedded in the Cockpit shell: it owns the sidebar, so the
                        app keeps its own tabs as a horizontal sub-navigation */
                     <PageSection padding={{ default: "noPadding" }} className="app-subnav">
-                        <Nav aria-label="Sections" variant="horizontal-subnav">
+                        <Nav aria-label={t("Sections")} variant="horizontal-subnav">
                             <NavList>
-                                {TABS.map(t => (
+                                {TABS.map(nav => (
                                     <NavItem
-                                        key={t.id}
-                                        isActive={tab === t.id}
-                                        onClick={e => { e.preventDefault(); switchTab(e, t.id); }}
-                                        href={`#/${t.id}`}
+                                        key={nav.id}
+                                        isActive={tab === nav.id}
+                                        onClick={e => { e.preventDefault(); switchTab(e, nav.id); }}
+                                        href={`#/${nav.id}`}
                                     >
-                                        {t.title}
+                                        {nav.title}
                                     </NavItem>
                                 ))}
                             </NavList>
@@ -170,20 +171,20 @@ export function App() {
                     {loadError && (
                         <Alert
                             variant="danger"
-                            title="Cannot talk to the replication helper"
+                            title={t("Cannot talk to the replication helper")}
                             actionClose
                             onTimeout={() => setLoadError(null)}
                         >
                             {loadError}
                             <br />
-                            Make sure the helper is installed: <code>sudo make install</code>, and
-                            that your user may run it via sudo (see the README).
+                            {t("Make sure the helper is installed:")} <code>sudo make install</code>,{" "}
+                            {t("and that your user may run it via sudo (see the README).")}
                         </Alert>
                     )}
                     {actionError && (
                         <Alert
                             variant="danger"
-                            title="Operation failed"
+                            title={t("Operation failed")}
                             actionClose
                             onTimeout={() => setActionError(null)}
                         >
@@ -193,9 +194,9 @@ export function App() {
                 </AlertGroup>
                 {status && !status.scripts["vm-replicate"] && (
                     <PageSection>
-                        <Alert variant="warning" title="Replication scripts are not installed">
-                            <code>vm-replicate</code> / <code>vm-restore</code> were not found.
-                            Install them with <code>sudo make install</code> from this project.
+                        <Alert variant="warning" title={t("Replication scripts are not installed")}>
+                            <code>vm-replicate</code> / <code>vm-restore</code> {t("were not found.")}
+                            {" "}{t("Install them with")} <code>sudo make install</code> {t("from this project.")}
                         </Alert>
                     </PageSection>
                 )}

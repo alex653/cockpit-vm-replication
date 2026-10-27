@@ -7,7 +7,9 @@ import {
 } from "@patternfly/react-core";
 import { CheckCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { copyText, errorMessage, helper } from "../api.js";
+import { t, tc } from "../i18n.js";
 import { useStatus } from "../app.jsx";
+import { runStatus, vmStateText } from "./overview.jsx";
 
 function toInt(v) {
     const n = parseInt(v, 10);
@@ -52,41 +54,41 @@ function KeyBlock({ vm, keyInfo, setKeyInfo, disabled }) {
                                 if (keyInfo.public_key && await copyText(keyInfo.public_key)) {
                                     setCopied(true); setTimeout(() => setCopied(false), 2000);
                                 }
-                            }}>{copied ? "Copied" : "Copy"}</Button>
+                            }}>{copied ? t("Copied") : t("Copy")}</Button>
                         </FlexItem>
                     </Flex>
                     <HelperText><HelperTextItem>
-                        {keyInfo.fingerprint || "fingerprint unavailable"}
+                        {keyInfo.fingerprint || t("fingerprint unavailable")}
                     </HelperTextItem></HelperText>
                     <Flex gap={{ default: "gapSm" }}>
-                        <FlexItem><Button variant="warning" isDisabled={!!busy || disabled} onClick={() => setConfirm("regenerate")}>Regenerate</Button></FlexItem>
-                        <FlexItem><Button variant="danger" isDisabled={!!busy || disabled} onClick={() => setConfirm("delete")}>Delete</Button></FlexItem>
+                        <FlexItem><Button variant="warning" isDisabled={!!busy || disabled} onClick={() => setConfirm("regenerate")}>{t("Regenerate")}</Button></FlexItem>
+                        <FlexItem><Button variant="danger" isDisabled={!!busy || disabled} onClick={() => setConfirm("delete")}>{t("Delete")}</Button></FlexItem>
                         {busy && <FlexItem><Spinner size="md" /></FlexItem>}
                     </Flex>
                 </>
             ) : (
                 <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
-                    <FlexItem><Button variant="secondary" isDisabled={!!busy || disabled} onClick={() => act("generate")}>Generate key</Button></FlexItem>
+                    <FlexItem><Button variant="secondary" isDisabled={!!busy || disabled} onClick={() => act("generate")}>{t("Generate key")}</Button></FlexItem>
                     {busy && <FlexItem><Spinner size="md" /></FlexItem>}
-                    <FlexItem><HelperText><HelperTextItem>No dedicated key — ssh falls back to root's default keys.</HelperTextItem></HelperText></FlexItem>
+                    <FlexItem><HelperText><HelperTextItem>{t("No dedicated key — ssh falls back to root's default keys.")}</HelperTextItem></HelperText></FlexItem>
                 </Flex>
             )}
             {error && <Alert variant="danger" isInline title={error} />}
 
             <Modal isOpen={!!confirm} onClose={() => setConfirm(null)} variant="small">
-                <ModalHeader title={confirm === "delete" ? "Delete this profile's SSH key?" : "Regenerate this profile's SSH key?"} />
+                <ModalHeader title={confirm === "delete" ? t("Delete this profile's SSH key?") : t("Regenerate this profile's SSH key?")} />
                 <ModalBody>
                     <Content component={ContentVariants.p}>
                         {confirm === "delete"
-                            ? "The key pair is removed. ssh falls back to root's default keys; remote hosts that only had this key will reject connections."
-                            : "A new key pair replaces the current one. The old key stops working immediately — install the new public key on the remote host before the next sync."}
+                            ? t("The key pair is removed. ssh falls back to root's default keys; remote hosts that only had this key will reject connections.")
+                            : t("A new key pair replaces the current one. The old key stops working immediately — install the new public key on the remote host before the next sync.")}
                     </Content>
                 </ModalBody>
                 <ModalFooter>
                     <Button variant={confirm === "delete" ? "danger" : "primary"} isDisabled={!!busy} onClick={() => act(confirm === "delete" ? "delete" : "generate")}>
-                        {confirm === "delete" ? "Delete" : "Regenerate"}
+                        {confirm === "delete" ? t("Delete") : t("Regenerate")}
                     </Button>
-                    <Button variant="link" isDisabled={!!busy} onClick={() => setConfirm(null)}>Cancel</Button>
+                    <Button variant="link" isDisabled={!!busy} onClick={() => setConfirm(null)}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </Flex>
@@ -136,14 +138,14 @@ function CheckBlock({ vm, target, opts }) {
         <>
             <Button variant="secondary" onClick={run} isDisabled={!target.trim() || !!state?.checking}
                 icon={state?.checking ? <Spinner size="sm" /> : undefined}>
-                {state?.checking ? "Checking…" : "Check access"}
+                {state?.checking ? t("Checking…") : t("Check access")}
             </Button>
             {state?.error && <Alert variant="danger" isInline title={state.error} />}
             {state?.result && (
                 <Alert variant={state.result.ok ? "success" : "warning"} isInline
                     title={state.result.ok
-                        ? "Access OK — " + state.result.target + (state.result.port ? ` (port ${state.result.port})` : "")
-                        : "Access check failed"}>
+                        ? t("Access OK — {target}", { target: state.result.target }) + (state.result.port ? t(" (port {port})", { port: state.result.port }) : "")
+                        : t("Access check failed")}>
                     <ul className="check-list">
                         {state.result.checks.map((c, i) => (
                             <li key={i} className={c.ok ? "ok" : "fail"}>
@@ -157,7 +159,7 @@ function CheckBlock({ vm, target, opts }) {
                         <div style={{ marginTop: "0.5rem" }}>
                             <Button variant="secondary" isDisabled={!!hostkey?.scanning}
                                 icon={hostkey?.scanning ? <Spinner size="sm" /> : undefined} onClick={scan}>
-                                {hostkey?.scanning ? "Scanning…" : "Accept host key"}
+                                {hostkey?.scanning ? t("Scanning…") : t("Accept host key")}
                             </Button>
                             {hostkey?.error && <Content component={ContentVariants.small}>{hostkey.error}</Content>}
                         </div>
@@ -165,21 +167,20 @@ function CheckBlock({ vm, target, opts }) {
                 </Alert>
             )}
             <Modal isOpen={!!hostkey?.scan} onClose={() => setHostkey(null)} variant="medium">
-                <ModalHeader title={hostkey?.scan ? "Trust " + hostkey.scan.host + (hostkey.scan.port ? ":" + hostkey.scan.port : "") + "?" : ""} />
+                <ModalHeader title={hostkey?.scan ? t("Trust {host}?", { host: hostkey.scan.host + (hostkey.scan.port ? ":" + hostkey.scan.port : "") }) : ""} />
                 <ModalBody>
                     <Content component={ContentVariants.p}>
-                        These are the host keys the remote server presents. Verify them out-of-band
-                        if you can; accepting trusts this server on first use.
+                        {t("These are the host keys the remote server presents. Verify them out-of-band if you can; accepting trusts this server on first use.")}
                     </Content>
                     <pre className="log-tail mono-input" style={{ maxHeight: "14rem" }}>
                         {hostkey?.scan?.keys?.map(k =>
-                            `${k.already_known ? "[known]  " : "[new]      "}${k.fingerprint}`).join("\n") || ""}
+                            `${k.already_known ? t("[known]") : t("[new]")}  ${k.fingerprint}`).join("\n") || ""}
                     </pre>
                     {hostkey?.error && <Alert variant="danger" isInline title={hostkey.error} />}
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="primary" isDisabled={!!hostkey?.accepting} onClick={accept}>{hostkey?.accepting ? "Adding…" : "Accept and re-check"}</Button>
-                    <Button variant="link" isDisabled={!!hostkey?.accepting} onClick={() => setHostkey(null)}>Cancel</Button>
+                    <Button variant="primary" isDisabled={!!hostkey?.accepting} onClick={accept}>{hostkey?.accepting ? t("Adding…") : t("Accept and re-check")}</Button>
+                    <Button variant="link" isDisabled={!!hostkey?.accepting} onClick={() => setHostkey(null)}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </>
@@ -212,7 +213,7 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
     const set = patch => setForm(f => ({ ...f, ...patch }));
 
     const save = async () => {
-        if (!chosenVm) { setError("Choose a VM first"); return; }
+        if (!chosenVm) { setError(t("Choose a VM first")); return; }
         setSaving(true);
         setError(null);
         try {
@@ -241,15 +242,15 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
         <div className="entry-editor">
             <Form>
                 {isNew && (
-                    <FormGroup label="Virtual machine" fieldId="ef-vm">
+                    <FormGroup label={t("Virtual machine")} fieldId="ef-vm">
                         <select id="ef-vm" className="pf-v6-c-form-control" value={chosenVm}
                             onChange={e => setChosenVm(e.target.value)}>
-                            <option value="">— select a VM —</option>
+                            <option value="">{t("— select a VM —")}</option>
                             {unconfigured.map(v => <option key={v} value={v}>{v}</option>)}
                         </select>
                         {unconfigured.length === 0 && (
                             <HelperText><HelperTextItem variant="warning">
-                                Every running VM already has a configuration.
+                                {t("Every running VM already has a configuration.")}
                             </HelperTextItem></HelperText>
                         )}
                     </FormGroup>
@@ -258,46 +259,46 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
 
                 {showForm && (
                     <>
-                        <FormGroup label="Remote target" fieldId="ef-remote"
-                            helperText="Empty = keep local copies only. Port goes into SSH options (-p <port>).">
+                        <FormGroup label={t("Remote target")} fieldId="ef-remote"
+                            helperText={t("Empty = keep local copies only. Port goes into SSH options (-p <port>).")}>
                             <TextInput id={`ef-remote-${chosenVm}`} value={form.REMOTE_TARGET}
                                 placeholder="user@remote-host:/srv/vm-replication"
                                 onChange={(_e, v) => set({ REMOTE_TARGET: v })} />
                         </FormGroup>
-                        <FormGroup label="SSH options" fieldId="ef-sshopts">
+                        <FormGroup label={t("SSH options")} fieldId="ef-sshopts">
                             <TextInput id={`ef-sshopts-${chosenVm}`} value={form.REMOTE_SSH_OPTS}
                                 onChange={(_e, v) => set({ REMOTE_SSH_OPTS: v })} />
                         </FormGroup>
                         {chosenVm && (
-                            <FormGroup label="Access check">
+                            <FormGroup label={t("Access check")}>
                                 <CheckBlock vm={chosenVm} target={form.REMOTE_TARGET} opts={form.REMOTE_SSH_OPTS} />
                             </FormGroup>
                         )}
-                        <FormGroup label="Dedicated SSH key" fieldId="ef-key"
-                            helperText="Used automatically for this configuration while it exists.">
+                        <FormGroup label={t("Dedicated SSH key")} fieldId="ef-key"
+                            helperText={t("Used automatically for this configuration while it exists.")}>
                             {chosenVm && <KeyBlock vm={chosenVm} keyInfo={keyInfo} setKeyInfo={setKeyInfo} disabled={false} />}
                         </FormGroup>
 
-                        <FormGroup label="Local storage root" fieldId="ef-root">
+                        <FormGroup label={t("Local storage root")} fieldId="ef-root">
                             <TextInput id={`ef-root-${chosenVm}`} value={form.STORAGE_ROOT}
                                 onChange={(_e, v) => set({ STORAGE_ROOT: v })} />
                         </FormGroup>
 
                         <Grid hasGutter md={4}>
-                            <GridItem><FormGroup label="Full copy every, days" fieldId="ef-full">
+                            <GridItem><FormGroup label={t("Full copy every, days")} fieldId="ef-full">
                                 <TextInput id="ef-full" type="number" min="1" value={form.FULL_EVERY_DAYS}
                                     onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Max increments" fieldId="ef-max">
+                            <GridItem><FormGroup label={t("Max increments")} fieldId="ef-max">
                                 <TextInput id="ef-max" type="number" min="1" value={form.MAX_INCS}
                                     onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Chains to keep" fieldId="ef-keep">
+                            <GridItem><FormGroup label={t("Chains to keep")} fieldId="ef-keep">
                                 <TextInput id="ef-keep" type="number" min="1" value={form.KEEP_CHAINS}
                                     onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Backup timeout, s" fieldId="ef-timeout">
+                            <GridItem><FormGroup label={t("Backup timeout, s")} fieldId="ef-timeout">
                                 <TextInput id="ef-timeout" type="number" min="60" value={form.BACKUP_TIMEOUT}
                                     onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem span={2}><FormGroup label="Integrity check" fieldId="ef-qcheck">
-                                <Switch id="ef-qcheck" label="qemu-img check before sending"
+                            <GridItem span={2}><FormGroup label={t("Integrity check")} fieldId="ef-qcheck">
+                                <Switch id="ef-qcheck" label={t("qemu-img check before sending")}
                                     isChecked={form.QEMU_IMG_CHECK}
                                     onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} /></FormGroup></GridItem>
                         </Grid>
@@ -307,8 +308,8 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
                 {error && <Alert variant="danger" isInline title={error} />}
                 <Flex gap={{ default: "gapSm" }}>
                     <FlexItem><Button variant="primary" onClick={save} isDisabled={saving || !chosenVm}>
-                        {saving ? "Saving…" : (isNew ? "Add configuration" : "Save changes")}</Button></FlexItem>
-                    <FlexItem><Button variant="link" onClick={onCancel} isDisabled={saving}>Cancel</Button></FlexItem>
+                        {saving ? t("Saving…") : (isNew ? t("Add configuration") : t("Save changes"))}</Button></FlexItem>
+                    <FlexItem><Button variant="link" onClick={onCancel} isDisabled={saving}>{t("Cancel")}</Button></FlexItem>
                 </Flex>
             </Form>
         </div>
@@ -360,28 +361,29 @@ function DefaultsCard() {
     return (
         <Card>
             <CardHeader actions={{ actions: (
-                <Button variant="link" onClick={() => setOpen(o => !o)}>{open ? "Hide" : "Edit"}</Button>) }}>
-                <CardTitle>Global defaults</CardTitle>
+                <Button variant="link" onClick={() => setOpen(o => !o)}>{open ? t("Hide") : t("Edit")}</Button>) }}>
+                <CardTitle>{t("Global defaults")}</CardTitle>
             </CardHeader>
             <CardBody>
                 <Content component={ContentVariants.small}>
-                    libvirt URI <code>{d.LIBVIRT_URI}</code> · default storage <code>{d.STORAGE_ROOT}</code> ·
-                    full every {d.FULL_EVERY_DAYS}d / max {d.MAX_INCS} incr. / keep {d.KEEP_CHAINS} — used to seed new configurations.
+                    {t("libvirt URI")} <code>{d.LIBVIRT_URI}</code> {t("· default storage")} <code>{d.STORAGE_ROOT}</code>{" "}
+                    {t("· full every {days}d / max {incs} incr. / keep {chains} — used to seed new configurations.",
+                       { days: d.FULL_EVERY_DAYS, incs: d.MAX_INCS, chains: d.KEEP_CHAINS })}
                 </Content>
                 {open && (
                     <Form style={{ marginTop: "1rem" }}>
-                        <FormGroup label="libvirt URI" fieldId="d-uri">
+                        <FormGroup label={t("libvirt URI")} fieldId="d-uri">
                             <TextInput id="d-uri" value={d.LIBVIRT_URI} onChange={(_e, v) => set({ LIBVIRT_URI: v })} /></FormGroup>
-                        <FormGroup label="Default storage root" fieldId="d-root">
+                        <FormGroup label={t("Default storage root")} fieldId="d-root">
                             <TextInput id="d-root" value={d.STORAGE_ROOT} onChange={(_e, v) => set({ STORAGE_ROOT: v })} /></FormGroup>
                         <Grid hasGutter md={4}>
-                            <GridItem><FormGroup label="Full every, days"><TextInput type="number" min="1" value={d.FULL_EVERY_DAYS} onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Max increments"><TextInput type="number" min="1" value={d.MAX_INCS} onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Chains to keep"><TextInput type="number" min="1" value={d.KEEP_CHAINS} onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem><FormGroup label="Backup timeout, s"><TextInput type="number" min="60" value={d.BACKUP_TIMEOUT} onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} /></FormGroup></GridItem>
-                            <GridItem span={2}><FormGroup label="Integrity check"><Switch id="d-qc" label="qemu-img check" isChecked={d.QEMU_IMG_CHECK} onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label={t("Full every, days")}><TextInput type="number" min="1" value={d.FULL_EVERY_DAYS} onChange={(_e, v) => set({ FULL_EVERY_DAYS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label={t("Max increments")}><TextInput type="number" min="1" value={d.MAX_INCS} onChange={(_e, v) => set({ MAX_INCS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label={t("Chains to keep")}><TextInput type="number" min="1" value={d.KEEP_CHAINS} onChange={(_e, v) => set({ KEEP_CHAINS: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem><FormGroup label={t("Backup timeout, s")}><TextInput type="number" min="60" value={d.BACKUP_TIMEOUT} onChange={(_e, v) => set({ BACKUP_TIMEOUT: toInt(v) })} /></FormGroup></GridItem>
+                            <GridItem span={2}><FormGroup label={t("Integrity check")}><Switch id="d-qc" label={t("qemu-img check")} isChecked={d.QEMU_IMG_CHECK} onChange={(_e, v) => set({ QEMU_IMG_CHECK: v })} /></FormGroup></GridItem>
                         </Grid>
-                        <Button variant="primary" onClick={save} isDisabled={saving}>{saving ? "Saving…" : "Save defaults"}</Button>
+                        <Button variant="primary" onClick={save} isDisabled={saving}>{saving ? t("Saving…") : t("Save defaults")}</Button>
                     </Form>
                 )}
             </CardBody>
@@ -421,22 +423,21 @@ export function ConfigView() {
             <Card>
                 <CardHeader actions={{ actions: (
                     <Button variant="primary" isDisabled={!!editing} onClick={() => setEditing("new")}>
-                        Add configuration
+                        {t("Add configuration")}
                     </Button>) }}>
-                    <CardTitle>Replication configurations</CardTitle>
+                    <CardTitle>{t("Replication configurations")}</CardTitle>
                 </CardHeader>
                 <CardBody>
                     {entries.filter(e => e.in_config).length === 0 && !editing && (
                         <Content component={ContentVariants.p}>
-                            No configurations yet — add one to replicate a VM with its own
-                            remote target and SSH key.
+                            {t("No configurations yet — add one to replicate a VM with its own remote target and SSH key.")}
                         </Content>
                     )}
                     <table className="vm-table">
                         <thead>
                             <tr>
-                                <th>VM</th><th>State</th><th>Remote</th><th>Key</th>
-                                <th>Next run</th><th>Last result</th><th></th>
+                                <th>{t("VM")}</th><th>{t("State")}</th><th>{t("Remote")}</th><th>{t("Key")}</th>
+                                <th>{t("Next run")}</th><th>{t("Last result")}</th><th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -451,26 +452,28 @@ export function ConfigView() {
                             {entries.map(e => (
                                 <React.Fragment key={e.vm}>
                                     <tr>
-                                        <td><strong>{e.vm}</strong>{!e.in_config && <Label color="orange" style={{ marginLeft: "0.5rem" }}>no config</Label>}</td>
-                                        <td>{e.state}</td>
+                                        <td><strong>{e.vm}</strong>{!e.in_config && <Label color="orange" style={{ marginLeft: "0.5rem" }}>{t("no config")}</Label>}</td>
+                                        <td>{vmStateText(e.state)}</td>
                                         <td>{e.config.REMOTE_TARGET
                                             ? <span title={e.config.REMOTE_TARGET}>{e.config.REMOTE_TARGET.split(":")[0]}</span>
-                                            : <Label color="grey">local only</Label>}</td>
+                                            : <Label color="grey">{t("local only")}</Label>}</td>
                                         <td>{e.key.exists
-                                            ? <Label color="green">dedicated</Label>
-                                            : <Label color="grey">default</Label>}</td>
-                                        <td>{e.next_action || "—"}</td>
-                                        <td>{e.last_run ? e.last_run.status : "—"}</td>
+                                            ? <Label color="green">{t("dedicated")}</Label>
+                                            : <Label color="grey">{t("default")}</Label>}</td>
+                                        <td>{e.next_action
+                                            ? (e.next_action === "full" ? t("full copy") : t("increment"))
+                                            : "—"}</td>
+                                        <td>{e.last_run ? runStatus(e.last_run.status) : "—"}</td>
                                         <td>
                                             <Flex gap={{ default: "gapSm" }}>
                                                 <FlexItem>
                                                     <Button variant="secondary" size="sm" isDisabled={!!editing}
-                                                        onClick={() => setEditing(e.vm)}>Edit</Button>
+                                                        onClick={() => setEditing(e.vm)}>{t("Edit")}</Button>
                                                 </FlexItem>
                                                 {e.in_config && (
                                                     <FlexItem>
-                                                        <Button variant="plain" size="sm" isDanger aria-label={`Delete ${e.vm}`}
-                                                            isDisabled={!!editing} onClick={() => setDeleteVm(e.vm)}>Delete</Button>
+                                                        <Button variant="plain" size="sm" isDanger aria-label={t("Delete {vm}", { vm: e.vm })}
+                                                            isDisabled={!!editing} onClick={() => setDeleteVm(e.vm)}>{t("Delete")}</Button>
                                                     </FlexItem>
                                                 )}
                                             </Flex>
@@ -494,16 +497,15 @@ export function ConfigView() {
             <DefaultsCard />
 
             <Modal isOpen={!!deleteVm} onClose={() => setDeleteVm(null)} variant="small">
-                <ModalHeader title={`Delete configuration ${deleteVm || ""}?`} />
+                <ModalHeader title={t("Delete configuration {vm}?", { vm: deleteVm || "" })} />
                 <ModalBody>
                     <Content component={ContentVariants.p}>
-                        Removes this VM's replication configuration file. Existing chains on
-                        disk and the SSH key are kept.
+                        {t("Removes this VM's replication configuration file. Existing chains on disk and the SSH key are kept.")}
                     </Content>
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="danger" isDisabled={deleting} onClick={doDelete}>Delete</Button>
-                    <Button variant="link" isDisabled={deleting} onClick={() => setDeleteVm(null)}>Cancel</Button>
+                    <Button variant="danger" isDisabled={deleting} onClick={doDelete}>{t("Delete")}</Button>
+                    <Button variant="link" isDisabled={deleting} onClick={() => setDeleteVm(null)}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </Flex>

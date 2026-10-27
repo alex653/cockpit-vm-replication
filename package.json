@@ -6,12 +6,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourname/cockpit-vm-replication.git"
+    "url": "https://github.com/alex653/cockpit-vm-replication.git"
   },
   "private": true,
   "scripts": {
-    "build": "esbuild src/index.js --bundle --outfile=dist/index.js --format=esm --jsx=automatic --loader:.js=jsx --minify --sourcemap --loader:.css=css --loader:.woff2=file --loader:.woff=file --loader:.ttf=file --loader:.svg=dataurl --loader:.png=dataurl --loader:.jpg=dataurl --external:cockpit && cp src/manifest.json src/index.html dist/",
-    "watch": "esbuild src/index.js --bundle --outfile=dist/index.js --format=esm --jsx=automatic --loader:.js=jsx --sourcemap --loader:.css=css --loader:.woff2=file --loader:.woff=file --loader:.ttf=file --loader:.svg=dataurl --loader:.png=dataurl --loader:.jpg=dataurl --external:cockpit --watch && cp src/manifest.json src/index.html dist/"
+    "build": "node esbuild.mjs && cp src/manifest.json src/index.html dist/",
+    "watch": "node esbuild.mjs --watch"
   },
   "dependencies": {
     "@patternfly/react-core": "^6.2.0",
@@ -21,6 +21,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "gettext-parser": "^8.0.0"
   }
 }

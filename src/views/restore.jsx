@@ -5,6 +5,7 @@ import {
     ModalFooter, ModalHeader, Spinner, TextInput,
 } from "@patternfly/react-core";
 import { errorMessage, fmtBytes, fmtDateTime, helper } from "../api.js";
+import { t, tc } from "../i18n.js";
 import { useStatus } from "../app.jsx";
 
 const defaultTarget = vm => `/var/lib/libvirt/images/${vm}-restored.qcow2`;
@@ -93,18 +94,14 @@ export function Restore() {
             <GridItem span={12} lg={{ span: 7 }}>
                 <Card>
                     <CardHeader>
-                        <CardTitle>Restore a chain into one qcow2 image</CardTitle>
+                        <CardTitle>{t("Restore a chain into one qcow2 image")}</CardTitle>
                     </CardHeader>
                     <CardBody>
                         <Content component={ContentVariants.p}>
-                            Runs <code>vm-restore &lt;chain&gt; &lt;target&gt;</code>: rebases the
-                            increments onto the full copy and flattens the result into a single
-                            image. The chain files themselves are not modified. Typical next
-                            steps afterwards: <code>virsh define domain.xml</code> (adjust the
-                            disk path) or import the image into another host.
+                            {t("Runs")} <code>vm-restore &lt;chain&gt; &lt;target&gt;</code>{t(": rebases the increments onto the full copy and flattens the result into a single image. The chain files themselves are not modified. Typical next steps afterwards:")} <code>virsh define domain.xml</code> {t("(adjust the disk path) or import the image into another host.")}
                         </Content>
                         <Form style={{ marginTop: "1rem" }}>
-                            <FormGroup label="Virtual machine" fieldId="rvm">
+                            <FormGroup label={t("Virtual machine")} fieldId="rvm">
                                 <select
                                     id="rvm"
                                     className="pf-v6-c-form-control"
@@ -124,7 +121,7 @@ export function Restore() {
                                     ))}
                                 </select>
                             </FormGroup>
-                            <FormGroup label="Chain" fieldId="rchain">
+                            <FormGroup label={t("Chain")} fieldId="rchain">
                                 <select
                                     id="rchain"
                                     className="pf-v6-c-form-control"
@@ -133,28 +130,30 @@ export function Restore() {
                                 >
                                     {(vmObj?.chains || []).map(c => (
                                         <option key={c.name} value={c.name}>
-                                            {c.name} ({c.kind}, {c.inc_count} incr., {fmtBytes(c.total_bytes)})
+                                            {t("{name} ({kind}, {n} incr., {size})", {
+                                                name: c.name, kind: tc("kind", c.kind), n: c.inc_count, size: fmtBytes(c.total_bytes),
+                                            })}
                                         </option>
                                     ))}
                                 </select>
                             </FormGroup>
                             {chainObj && (
                                 <Content component={ContentVariants.small}>
-                                    Created {fmtDateTime(chainObj.created)} · last backup{" "}
-                                    {fmtDateTime(chainObj.last_backup)} · needs about{" "}
-                                    <strong>{fmtBytes(chainObj.full_bytes)}</strong> of target space
+                                    {t("Created")} {fmtDateTime(chainObj.created)} {t("· last backup")}{" "}
+                                    {fmtDateTime(chainObj.last_backup)} {t("· needs about")}{" "}
+                                    <strong>{fmtBytes(chainObj.full_bytes)}</strong> {t("of target space")}
                                 </Content>
                             )}
-                            <FormGroup label="Target image path" fieldId="rtarget"
-                                helperText="Must not exist yet; the directory has to exist.">
+                            <FormGroup label={t("Target image path")} fieldId="rtarget"
+                                helperText={t("Must not exist yet; the directory has to exist.")}>
                                 <TextInput id="rtarget" value={target}
                                     onChange={(_e, v) => setTarget(v)} />
                             </FormGroup>
                         </Form>
                         {error && <Alert variant="danger" isInline title={error} />}
                         {done && (
-                            <Alert variant="success" isInline title="Restore finished">
-                                Check the log below, then define the VM or attach the image.
+                            <Alert variant="success" isInline title={t("Restore finished")}>
+                                {t("Check the log below, then define the VM or attach the image.")}
                             </Alert>
                         )}
                     </CardBody>
@@ -164,11 +163,11 @@ export function Restore() {
                             isDisabled={!vm || !chain || !target.trim() || working || status.restore.running}
                             onClick={() => { setError(null); setConfirming(true); }}
                         >
-                            Restore…
+                            {tc("verb", "Restore")}…
                         </Button>
                         {status.restore.running && (
                             <span style={{ marginLeft: "1rem" }}>
-                                <Spinner size="md" /> restore is running
+                                <Spinner size="md" /> {t("restore is running")}
                             </span>
                         )}
                     </CardFooter>
@@ -177,28 +176,26 @@ export function Restore() {
             <GridItem span={12} lg={{ span: 5 }}>
                 <Card>
                     <CardHeader>
-                        <CardTitle>Restore on the remote host</CardTitle>
+                        <CardTitle>{t("Restore on the remote host")}</CardTitle>
                     </CardHeader>
                     <CardBody>
                         <Content component={ContentVariants.p}>
-                            Chains are mirrored to the remote target as-is (full + increments +
-                            <code> domain.xml</code> + a copy of <code>vm-restore</code>), so a
-                            disaster recovery usually happens there:
+                            {t("Chains are mirrored to the remote target as-is (full + increments +")}<code> domain.xml</code>{t("+ a copy of")} <code>vm-restore</code>{t("), so a disaster recovery usually happens there:")}
                         </Content>
-                        <pre className="log-tail">{`# on the remote host
+                        <pre className="log-tail">{`${t("# on the remote host")}
 ./vm-restore <chain-dir> /var/lib/libvirt/images/${vm || "vm"}.qcow2
 virsh define <chain-dir>/domain.xml
-# adjust the disk path if needed, then:
+${t("# adjust the disk path if needed, then:")}
 virsh start ${vm || "vm"}`}</pre>
                     </CardBody>
                 </Card>
                 <Card style={{ marginTop: "1rem" }}>
                     <CardHeader>
-                        <CardTitle>Restore log</CardTitle>
+                        <CardTitle>{t("Restore log")}</CardTitle>
                     </CardHeader>
                     <CardBody>
                         <pre ref={preRef} className="log-tail" style={{ maxHeight: "18rem" }}>
-                            {log.length ? log.join("\n") : "— no restore jobs yet —"}
+                            {log.length ? log.join("\n") : t("— no restore jobs yet —")}
                         </pre>
                     </CardBody>
                 </Card>
@@ -209,19 +206,20 @@ virsh start ${vm || "vm"}`}</pre>
                 onClose={() => setConfirming(false)}
                 variant="small"
             >
-                <ModalHeader title="Start restore?" />
+                <ModalHeader title={t("Start restore?")} />
                 <ModalBody>
                     <Content component={ContentVariants.p}>
                         {chainObj
-                            ? `Flatten "${chain}" of ${vm} (${fmtBytes(chainObj.total_bytes)} stored, about ${fmtBytes(chainObj.full_bytes)} result) into:`
-                            : "Flatten chain into:"}
+                            ? t("Flatten \"{chain}\" of {vm} ({stored} stored, about {result} result) into:",
+                                { chain, vm, stored: fmtBytes(chainObj.total_bytes), result: fmtBytes(chainObj.full_bytes) })
+                            : t("Flatten chain into:")}
                         <br />
                         <code>{target}</code>
                     </Content>
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="primary" onClick={start}>Restore</Button>
-                    <Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button>
+                    <Button variant="primary" onClick={start}>{tc("verb", "Restore")}</Button>
+                    <Button variant="link" onClick={() => setConfirming(false)}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </Grid>

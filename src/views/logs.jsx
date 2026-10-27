@@ -4,6 +4,7 @@ import {
     Switch, TextInput,
 } from "@patternfly/react-core";
 import { errorMessage, helper } from "../api.js";
+import { t, tn } from "../i18n.js";
 
 const LINE_CHOICES = [200, 500, 1000, 3000];
 
@@ -31,8 +32,8 @@ export function Logs() {
     useEffect(() => {
         load();
         if (!auto) return;
-        const t = setInterval(load, 10000);
-        return () => clearInterval(t);
+        const iv = setInterval(load, 10000);
+        return () => clearInterval(iv);
     }, [load, auto]);
 
     useEffect(() => {
@@ -50,7 +51,7 @@ export function Logs() {
                 actions: (
                     <Flex gap={{ default: "gapSm" }}>
                         <FlexItem>
-                            <Switch id="auto-refresh" label="Auto-refresh"
+                            <Switch id="auto-refresh" label={t("Auto-refresh")}
                                 isChecked={auto} onChange={(_e, v) => setAuto(v)} />
                         </FlexItem>
                         <FlexItem>
@@ -58,25 +59,25 @@ export function Logs() {
                                 className="pf-v6-c-form-control"
                                 value={count}
                                 onChange={e => setCount(Number(e.target.value))}
-                                aria-label="Number of lines"
+                                aria-label={t("Number of lines")}
                             >
                                 {LINE_CHOICES.map(n => (
-                                    <option key={n} value={n}>{n} lines</option>
+                                    <option key={n} value={n}>{tn(n, "{n} line", "{n} lines", { n })}</option>
                                 ))}
                             </select>
                         </FlexItem>
                         <FlexItem>
-                            <Button variant="secondary" onClick={load}>Refresh</Button>
+                            <Button variant="secondary" onClick={load}>{t("Refresh")}</Button>
                         </FlexItem>
                     </Flex>
                 ),
             }}>
-                <CardTitle>vm-replication journal</CardTitle>
+                <CardTitle>{t("vm-replication journal")}</CardTitle>
             </CardHeader>
             <CardBody>
                 <TextInput
                     id="log-filter"
-                    placeholder="Filter…"
+                    placeholder={t("Filter…")}
                     value={filter}
                     onChange={(_e, v) => setFilter(v)}
                     style={{ marginBottom: "0.75rem", maxWidth: "24rem" }}
@@ -92,7 +93,7 @@ export function Logs() {
                                 {"\n"}
                             </span>
                         ))
-                        : !loading && "— no entries —"}
+                        : !loading && t("— no entries —")}
                 </pre>
             </CardBody>
         </Card>

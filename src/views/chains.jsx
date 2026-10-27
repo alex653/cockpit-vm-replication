@@ -6,7 +6,9 @@ import {
 } from "@patternfly/react-core";
 import { TrashIcon } from "@patternfly/react-icons";
 import { errorMessage, fmtBytes, fmtDateTime, helper, timeAgo } from "../api.js";
+import { t, tc } from "../i18n.js";
 import { useStatus } from "../app.jsx";
+import { vmStateText } from "./overview.jsx";
 
 export function Chains() {
     const { status, refresh, setActionError, goto } = useStatus();
@@ -38,14 +40,14 @@ export function Chains() {
         <>
             {status.vms.filter(v => !v.in_config).map(v => (
                 <Alert key={v.name} variant="info" isInline
-                    title={`${v.name} exists on this host but is not in the replication config`}>
-                    Add it on the <Button variant="link" isInline
-                        onClick={() => goto(null, "config")}>Configuration</Button> tab.
+                    title={t("{name} exists on this host but is not in the replication config", { name: v.name })}>
+                    {t("Add it on the")} <Button variant="link" isInline
+                        onClick={() => goto(null, "config")}>{t("Configuration")}</Button> {t("tab.")}
                 </Alert>
             ))}
             {status.vms.length === 0 && (
-                <Alert variant="info" isInline title="Nothing replicated yet">
-                    Add VMs on the Configuration tab first.
+                <Alert variant="info" isInline title={t("Nothing replicated yet")}>
+                    {t("Add VMs on the Configuration tab first.")}
                 </Alert>
             )}
 
@@ -66,7 +68,7 @@ export function Chains() {
                                                 .then(refresh)
                                                 .catch(e => setActionError(errorMessage(e)))}
                                         >
-                                            Replicate now
+                                            {t("Replicate now")}
                                         </Button>
                                     ),
                                 }}
@@ -75,11 +77,11 @@ export function Chains() {
                                     {vm.name}{" "}
                                     <Label color={vm.state === "running" ? "green" : "grey"}
                                         style={{ marginLeft: "0.5rem" }}>
-                                        {vm.state}
+                                        {vmStateText(vm.state)}
                                     </Label>
                                     {vm.checkpoints.length > 0 && (
                                         <span className="pf-v6-u-color-200" style={{ marginLeft: "1rem" }}>
-                                            checkpoint: {vm.checkpoints[vm.checkpoints.length - 1]}
+                                            {t("checkpoint: {name}", { name: vm.checkpoints[vm.checkpoints.length - 1] })}
                                         </span>
                                     )}
                                 </CardTitle>
@@ -88,21 +90,21 @@ export function Chains() {
                                 <CardBody>
                                     {vm.chains.length === 0 && (
                                         <Content component={ContentVariants.p}>
-                                            No copies yet — run replication to create the first chain.
+                                            {t("No copies yet — run replication to create the first chain.")}
                                         </Content>
                                     )}
                                     {vm.chains.length > 0 && (
                                         <table className="vm-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Chain</th>
-                                                    <th>Kind</th>
-                                                    <th>Created</th>
-                                                    <th>Full copy</th>
-                                                    <th>Increments</th>
-                                                    <th>Increment data</th>
-                                                    <th>Total</th>
-                                                    <th>Last backup</th>
+                                                    <th>{t("Chain")}</th>
+                                                    <th>{t("Kind")}</th>
+                                                    <th>{t("Created")}</th>
+                                                    <th>{t("Full copy")}</th>
+                                                    <th>{t("Increments")}</th>
+                                                    <th>{t("Increment data")}</th>
+                                                    <th>{t("Total")}</th>
+                                                    <th>{t("Last backup")}</th>
                                                     <th>domain.xml</th>
                                                     <th></th>
                                                 </tr>
@@ -114,12 +116,12 @@ export function Chains() {
                                                         <td>
                                                             <strong>{c.name}</strong>
                                                             {c.name === vm.active_chain && (
-                                                                <>&nbsp;<Label color="blue">active</Label></>
+                                                                <>&nbsp;<Label color="blue">{tc("chain", "active")}</Label></>
                                                             )}
                                                         </td>
                                                         <td>
                                                             <Label color={c.kind === "cold" ? "orange" : "cyan"}>
-                                                                {c.kind}
+                                                                {tc("kind", c.kind)}
                                                             </Label>
                                                         </td>
                                                         <td>{fmtDateTime(c.created)}</td>
@@ -136,7 +138,7 @@ export function Chains() {
                                                         <td title={c.last_backup ? fmtDateTime(c.last_backup) : ""}>
                                                             {c.last_backup ? timeAgo(c.last_backup) : "—"}
                                                         </td>
-                                                        <td>{c.has_domain_xml ? "yes" : "—"}</td>
+                                                        <td>{c.has_domain_xml ? t("yes") : "—"}</td>
                                                         <td>
                                                             <Flex gap={{ default: "gapSm" }}>
                                                                 <FlexItem>
@@ -148,12 +150,12 @@ export function Chains() {
                                                                                 "vm-replication.restore",
                                                                                 JSON.stringify({ vm: vm.name, chain: c.name }));
                                                                         }}>
-                                                                        Restore
+                                                                        {tc("verb", "Restore")}
                                                                     </Button>
                                                                 </FlexItem>
                                                                 <FlexItem>
                                                                     <Button variant="plain" size="sm" isDanger
-                                                                        aria-label={`Delete chain ${c.name}`}
+                                                                        aria-label={t("Delete chain {name}", { name: c.name })}
                                                                         onClick={() => { setDeleteError(null); setDeleting({ vm: vm.name, chain: c.name, kind: c.kind }); }}>
                                                                         <TrashIcon />
                                                                     </Button>
@@ -177,20 +179,17 @@ export function Chains() {
                 onClose={() => setDeleting(null)}
                 variant="small"
             >
-                <ModalHeader title={deleting ? `Delete chain ${deleting.chain}?` : ""} />
+                <ModalHeader title={deleting ? t("Delete chain {name}?", { name: deleting.chain }) : ""} />
                 <ModalBody>
                     {deleting && (
                         <>
                             {deleting.kind !== "cold" && deleting.chain === status.vms.find(v => v.name === deleting.vm)?.active_chain && (
-                                <Alert variant="warning" isInline title="This is the active chain">
-                                    After deleting it the next replication run will make a new full copy,
-                                    and stale checkpoints will be pruned.
+                                <Alert variant="warning" isInline title={t("This is the active chain")}>
+                                    {t("After deleting it the next replication run will make a new full copy, and stale checkpoints will be pruned.")}
                                 </Alert>
                             )}
                             <Content component={ContentVariants.p}>
-                                All files of this chain (full copy, increments, metadata) will be
-                                permanently deleted from local storage. If a remote mirror is
-                                configured, it will be cleaned on the next successful run.
+                                {t("All files of this chain (full copy, increments, metadata) will be permanently deleted from local storage. If a remote mirror is configured, it will be cleaned on the next successful run.")}
                             </Content>
                             {deleteError && <Alert variant="danger" isInline title={deleteError} />}
                             {working && <Spinner size="md" />}
@@ -198,8 +197,8 @@ export function Chains() {
                     )}
                 </ModalBody>
                 <ModalFooter>
-                    <Button variant="danger" onClick={doDelete} isDisabled={working}>Delete</Button>
-                    <Button variant="link" onClick={() => setDeleting(null)} isDisabled={working}>Cancel</Button>
+                    <Button variant="danger" onClick={doDelete} isDisabled={working}>{t("Delete")}</Button>
+                    <Button variant="link" onClick={() => setDeleting(null)} isDisabled={working}>{t("Cancel")}</Button>
                 </ModalFooter>
             </Modal>
         </>

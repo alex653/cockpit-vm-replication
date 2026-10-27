@@ -22,12 +22,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check po files against source
+        run: node tools/check-po.mjs
+
       - name: Sanity check dist
         run: |
           test -f dist/index.js
           test -f dist/index.css
+          for L in de es fr it ja pl pt ru uk zh; do test -f dist/po.$L.js || exit 1; done
           python3 -m json.tool dist/manifest.json > /dev/null
           grep -q "base1/cockpit.js" dist/index.html
+          grep -q '"po.js"' dist/index.html
 
       - name: Shellcheck helper and scripts
         run: |
@@ -58,7 +63,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           tar --transform "s,^,cockpit-vm-replication-${VERSION}/," \
               -czf "cockpit-vm-replication-${VERSION}.tar.gz" \
-              dist helper scripts Makefile README.md README.ru.md LICENSE package.json
+              dist helper scripts tools po Makefile esbuild.mjs README.md README.ru.md LICENSE package.json
       - uses: softprops/action-gh-release@v2
         with:
           files: cockpit-vm-replication-*.tar.gz
