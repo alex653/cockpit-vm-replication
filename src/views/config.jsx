@@ -3,8 +3,11 @@ import {
     Alert, Button, Card, CardBody, CardFooter, CardHeader, CardTitle,
     Checkbox, Content, ContentVariants, Flex, FlexItem, Form, FormGroup,
     Grid, GridItem, HelperText, HelperTextItem, Spinner, Switch,
-    TextInput, NumberInput as PFNumberInput,
+    TextInput,
 } from "@patternfly/react-core";
+import {
+    CheckCircleIcon, TimesCircleIcon,
+} from "@patternfly/react-icons";
 import { errorMessage, helper } from "../api.js";
 import { useStatus } from "../app.jsx";
 
@@ -20,6 +23,7 @@ export function ConfigView() {
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState(null);
+    const [check, setCheck] = useState(null); // {checking} | {result} | {error}
 
     useEffect(() => {
         if (status && !form) {
@@ -42,7 +46,25 @@ export function ConfigView() {
     if (!status || !form)
         return <Spinner size="lg" />;
 
-    const set = patch => { setForm(f => ({ ...f, ...patch })); setSaved(false); };
+    const set = patch => {
+        setForm(f => ({ ...f, ...patch }));
+        setSaved(false);
+        if ("REMOTE_TARGET" in patch || "REMOTE_SSH_OPTS" in patch)
+            setCheck(null);
+    };
+
+    const checkAccess = async () => {
+        setCheck({ checking: true });
+        try {
+            const result = await helper("remote-check", [], JSON.stringify({
+                remote_target: form.REMOTE_TARGET.trim(),
+                ssh_opts: form.REMOTE_SSH_OPTS,
+            }));
+            setCheck({ result });
+        } catch (e) {
+            setCheck({ error: errorMessage(e) });
+        }
+    };
 
     const addVm = name => {
         const n = name.trim();
@@ -130,10 +152,54 @@ export function ConfigView() {
                             </FormGroup>
 
                             <FormGroup label="Remote target" fieldId="remote"
-                                helperText='Mirror copies over rsync/ssh, e.g. "backup@nas:/srv/vm-replication". Empty = keep local copies only.'>
-                                <TextInput id="remote" value={form.REMOTE_TARGET}
-                                    placeholder="user@remote-host:/srv/vm-replication"
-                                    onChange={(_e, v) => set({ REMOTE_TARGET: v })} />
+                                helperText='Mirror copies over rsync/ssh, e.g. "backup@nas:/srv/vm-replication". Empty = keep local copies only. Port goes into SSH options below.'>
+                                <Flex gap={{ default: "gapSm" }}>
+                                    <FlexItem grow={{ default: "grow" }}>
+                                        <TextInput id="remote" value={form.REMOTE_TARGET}
+                                            placeholder="user@remote-host:/srv/vm-replication"
+                                            onChange={(_e, v) => set({ REMOTE_TARGET: v })} />
+                                    </FlexItem>
+                                    <FlexItem>
+                                        <Button variant="secondary" onClick={checkAccess}
+                                            isDisabled={!form.REMOTE_TARGET.trim() || !!check?.checking}
+                                            icon={check?.checking ? <Spinner size="sm" /> : undefined}>
+                                            {check?.checking ? "Checking…" : "Check access"}
+                                        </Button>
+                                    </FlexItem>
+                                </Flex>
+                                {check?.checking && (
+                                    <HelperText><HelperTextItem>
+                                        Trying to connect (up to ~30&nbsp;seconds)…
+                                    </HelperTextItem></HelperText>
+                                )}
+                                {check?.error && (
+                                    <Alert variant="danger" isInline title={check.error} />
+                                )}
+                                {check?.result && (
+                                    <Alert
+                                        variant={check.result.ok ? "success" : "warning"}
+                                        isInline
+                                        title={check.result.ok
+                                            ? `Access OK — ${check.result.target}${check.result.port ? ` (port ${check.result.port})` : ""}`
+                                            : "Access check failed"}
+                                    >
+                                        <ul className="check-list">
+                                            {check.result.checks.map((c, i) => (
+                                                <li key={i} className={c.ok ? "ok" : "fail"}>
+                                                    {c.ok
+                                                        ? <CheckCircleIcon className="ok-icon" />
+                                                        : <TimesCircleIcon className="fail-icon" />}
+                                                    {" "}<strong>{c.name}:</strong> {c.detail}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        {check.result.hint && (
+                                            <Content component={ContentVariants.small}>
+                                                {check.result.hint}
+                                            </Content>
+                                        )}
+                                    </Alert>
+                                )}
                             </FormGroup>
 
                             <FormGroup label="SSH options" fieldId="sshopts"

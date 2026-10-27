@@ -18,6 +18,9 @@ Subcommands:
     status                        full JSON snapshot for the dashboard
     config-get                    parsed /etc/vm-replication/vms.conf
     config-set                    merge JSON (stdin) into the config
+    remote-check                  probe SSH access to a remote target (JSON
+                                  on stdin: {"remote_target", "ssh_opts"} —
+                                  form values, they need not be saved)
     run [--vm NAME]               start vm-replicate detached (one VM or all)
     run-status                    is a manual run active + its log tail
     restore-start VM CHAIN TARGET assemble chain into TARGET (detached)
@@ -31,6 +34,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import stat
@@ -40,7 +44,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 CONFIG_PATH = Path("/etc/vm-replication/vms.conf")
 RUN_DIR = Path("/run")
@@ -473,6 +477,121 @@ def cmd_config_set(payload):
     out({"ok": True, "config": parse_config()})
 
 
+# ---------------------------------------------------------- remote-check ---
+
+TARGET_RE = re.compile(r"^([^@\s]{1,128})@([^:\s]{1,253}):(/.{0,499}|.{1,500})$")
+
+
+def auth_hint(stderr):
+    """Human hint for a failed ssh connection."""
+    s = (stderr or "").lower()
+    if "host key verification failed" in s:
+        return ("The remote host key is not known to root yet. Accept it once "
+                "by running the printed ssh command in a terminal, then re-check.")
+    if "permission denied" in s:
+        return ("Key authentication was rejected. Install root's key on the "
+                "remote host:  sudo ssh-copy-id <same ssh options> user@host")
+    if "connection refused" in s:
+        return ("Connection refused — is sshd running there and is the port "
+                "correct (see the SSH options field, -p <port>)?")
+    if "timed out" in s or "connection timed out" in s:
+        return ("Connection timed out — check the address, port and firewall.")
+    if "name or service not known" in s or "could not resolve" in s:
+        return ("The host name could not be resolved. Note: name resolution "
+                "happens for root, aliases belong into /root/.ssh/config.")
+    return None
+
+
+def cmd_remote_check(payload):
+    """Probe SSH reachability and target-path usability for the UI form."""
+    payload = payload if isinstance(payload, dict) else {}
+    cfg = parse_config()
+    target = str(payload.get("remote_target") or cfg_get(cfg, "REMOTE_TARGET") or "").strip()
+    opts = str(payload.get("ssh_opts") or cfg_get(cfg, "REMOTE_SSH_OPTS") or "").strip()
+
+    checks = []
+    m = TARGET_RE.match(target)
+    if not m:
+        out({"ok": False, "target": target, "checks": [{
+            "name": "Target format",
+            "ok": False,
+            "detail": "expected user@host:/absolute/path (no port — put it into SSH options as -p <port>)",
+        }]})
+    user, host, path = m.groups()
+
+    try:
+        opt_list = shlex.split(opts)
+    except ValueError as exc:
+        out({"ok": False, "target": target, "checks": [{
+            "name": "SSH options", "ok": False, "detail": f"cannot parse: {exc}",
+        }]})
+
+    port = None
+    for i, o in enumerate(opt_list):
+        if o == "-p" and i + 1 < len(opt_list):
+            port = opt_list[i + 1]
+        elif o.startswith("-p") and len(o) > 2:
+            port = o[2:]
+
+    def ssh_argv(remote_command):
+        return ["ssh", *opt_list,
+                "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                f"{user}@{host}", remote_command]
+
+    # 1) TCP + host key + key authentication
+    r = run_cmd([*ssh_argv("true"), ], timeout=25)
+    checks.append({
+        "name": "SSH connection and key auth",
+        "ok": r.returncode == 0,
+        "detail": "connected, public key accepted" if r.returncode == 0
+                  else (r.stderr.strip().splitlines() or ["ssh failed"])[-1][:200],
+    })
+    hint = None if r.returncode == 0 else auth_hint(r.stderr)
+    if r.returncode != 0:
+        out({"ok": False, "target": target, "port": port, "checks": checks, "hint": hint})
+
+    # 2) remote side: path exists / writable (or creatable), rsync present.
+    #    Everything is quoted; the probe only reads metadata, except it may
+    #    later (via rsync) create the final path component itself.
+    q = shlex.quote
+    probe = (
+        f'p={q(path)}; d=0; w=0; rs=0; v="-"; '
+        '[ -d "$p" ] && d=1; '
+        '{ [ -w "$p" ] || { [ ! -e "$p" ] && [ -w "$(dirname "$p")" ]; }; } && w=1; '
+        'command -v rsync >/dev/null 2>&1 && { rs=1; v=$(rsync --version 2>/dev/null | head -n 1); }; '
+        'echo "d=$d w=$w rs=$rs"; echo "v=$v"'
+    )
+    r2 = run_cmd([*ssh_argv(probe)], timeout=30)
+    flags, rsync_version = {}, "-"
+    if r2.returncode == 0:
+        for line in r2.stdout.splitlines():
+            if line.startswith("d="):
+                flags = dict(kv.split("=", 1) for kv in line.split() if "=" in kv)
+            elif line.startswith("v="):
+                rsync_version = line[2:][:120]
+    if not flags:
+        checks.append({"name": "Remote probe", "ok": False,
+                       "detail": (r2.stderr.strip().splitlines() or ["probe failed"])[-1][:200]})
+        out({"ok": False, "target": target, "port": port, "checks": checks})
+    exists = flags.get("d") == "1"
+    writable = flags.get("w") == "1"
+    checks.append({
+        "name": "Target path",
+        "ok": writable,
+        "detail": (f"{path} — exists and writable" if exists and writable else
+                   f"{path} — writable (will be created on first sync)" if writable else
+                   f"{path} — missing and parent not writable"),
+    })
+    has_rsync = flags.get("rs") == "1"
+    checks.append({
+        "name": "rsync on remote host",
+        "ok": has_rsync,
+        "detail": rsync_version if has_rsync else "rsync not found in PATH — install it on the remote host",
+    })
+    out({"ok": writable and has_rsync, "target": target, "port": port,
+         "checks": checks})
+
+
 # ------------------------------------------------------------------ run ---
 
 def spawn_detached(argv, pidfile, logfile, extra_env=None):
@@ -616,6 +735,8 @@ def main():
         out({"config": parse_config()})
     elif cmd == "config-set":
         cmd_config_set(json.load(sys.stdin))
+    elif cmd == "remote-check":
+        cmd_remote_check(json.load(sys.stdin))
     elif cmd == "run":
         vm = rest[1] if len(rest) >= 2 and rest[0] == "--vm" else None
         cmd_run(vm)

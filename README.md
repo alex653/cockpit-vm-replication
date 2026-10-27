@@ -27,7 +27,7 @@ A systemd timer runs the job hourly. The Cockpit UI gives you:
 |---|---|
 | **Overview** | timer state and next run, storage usage, per-VM health (state, active chain, increment count, size, last backup, last result), run-now for all VMs or one VM |
 | **VMs & Chains** | every stored chain with full/increment sizes and times; delete a chain; jump to restore |
-| **Configuration** | edit `/etc/vm-replication/vms.conf` (VM list, remote target, ssh options, storage root, rotation policy) — comments in the file are preserved |
+| **Configuration** | edit `/etc/vm-replication/vms.conf` (VM list, remote target, ssh options, storage root, rotation policy) — comments in the file are preserved; a **Check access** button probes the entered remote target before saving: SSH key auth, rsync availability on the remote host and target path writability, with hints for common failures (unknown host key, rejected key, wrong port) |
 | **Restore** | flatten a chain into one qcow2 on this host, with size/free-space checks, plus copy-ready instructions for restoring on the remote side |
 | **Journal** | live `journalctl -t vm-replication` view with filter and auto-refresh |
 
@@ -78,9 +78,12 @@ Cockpit service a minute if it was running during install).
 
 1. Open **Configuration**, pick the VMs to replicate, optionally set
    `REMOTE_TARGET` (`user@backup-host:/srv/vm-replication`) and adjust the
-   rotation policy.
+   rotation policy. Non-standard ssh ports go into **SSH options**
+   (`-p 2222`). Press **Check access** to probe the target with the values
+   as entered — no need to save first.
 2. For remote mirroring prepare passwordless SSH as root:
-   `sudo ssh-copy-id user@backup-host`.
+   `sudo ssh-copy-id -p 2222 user@backup-host` (accept the remote host key
+   once if the check reports it as unknown).
 3. Press **Run now** and watch the Journal tab.
 
 ## How the replication works
