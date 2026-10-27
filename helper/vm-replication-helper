@@ -21,6 +21,9 @@ Subcommands:
     remote-check                  probe SSH access to a remote target (JSON
                                   on stdin: {"remote_target", "ssh_opts"} —
                                   form values, they need not be saved)
+    hostkey-scan                  list remote host keys + fingerprints (JSON
+                                  on stdin, same shape as remote-check)
+    hostkey-accept                append those keys to root's known_hosts
     key-get                       info about the dedicated ssh key
     key-generate                  create (or regenerate) the key pair
     key-delete                    remove the key pair
@@ -47,7 +50,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 CONFIG_PATH = Path("/etc/vm-replication/vms.conf")
 RUN_DIR = Path("/run")
@@ -96,6 +99,11 @@ def out(obj):
 
 def run_cmd(argv, timeout=30):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+
+
+def run_cmd_in(argv, stdin_text, timeout=15):
+    return subprocess.run(argv, input=stdin_text, capture_output=True,
+                          text=True, timeout=timeout)
 
 
 # ---------------------------------------------------------------- config ---
@@ -493,8 +501,10 @@ def auth_hint(stderr, has_key=False):
     """Human hint for a failed ssh connection."""
     s = (stderr or "").lower()
     if "host key verification failed" in s:
-        return ("The remote host key is not known to root yet. Accept it once "
-                "by running the printed ssh command in a terminal, then re-check.")
+        return ("The remote host key is not known to root yet. Use the "
+                "\"Accept host key\" button below (verify the fingerprints "
+                "first if you can), or run the ssh command once in a terminal "
+                "and confirm the key.")
     if "permission denied" in s:
         if has_key:
             return ("Key authentication was rejected. Append the dedicated "
@@ -514,14 +524,14 @@ def auth_hint(stderr, has_key=False):
     return None
 
 
-def cmd_remote_check(payload):
-    """Probe SSH reachability and target-path usability for the UI form."""
+def parse_target_opts(payload):
+    """Shared parsing of {remote_target, ssh_opts} (falls back to the saved
+    config). Returns a dict; on invalid input emits a JSON result and exits."""
     payload = payload if isinstance(payload, dict) else {}
     cfg = parse_config()
     target = str(payload.get("remote_target") or cfg_get(cfg, "REMOTE_TARGET") or "").strip()
     opts = str(payload.get("ssh_opts") or cfg_get(cfg, "REMOTE_SSH_OPTS") or "").strip()
 
-    checks = []
     m = TARGET_RE.match(target)
     if not m:
         out({"ok": False, "target": target, "checks": [{
@@ -544,6 +554,16 @@ def cmd_remote_check(payload):
             port = opt_list[i + 1]
         elif o.startswith("-p") and len(o) > 2:
             port = o[2:]
+    return {"target": target, "user": user, "host": host, "path": path,
+            "opt_list": opt_list, "port": port}
+
+
+def cmd_remote_check(payload):
+    """Probe SSH reachability and target-path usability for the UI form."""
+    t = parse_target_opts(payload)
+    target, user, host, path = t["target"], t["user"], t["host"], t["path"]
+    opt_list, port = t["opt_list"], t["port"]
+    checks = []
 
     def ssh_argv(remote_command):
         extra = []
@@ -606,6 +626,80 @@ def cmd_remote_check(payload):
     })
     out({"ok": writable and has_rsync, "target": target, "port": port,
          "checks": checks})
+
+
+# ----------------------------------------------------------- host keys ---
+
+KNOWN_HOSTS = Path("/root/.ssh/known_hosts")
+HOST_RE = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
+
+
+def scan_host_keys(t):
+    """Run ssh-keyscan for the parsed target; returns (lines, fingerprints)."""
+    host = t["host"]
+    if not HOST_RE.match(host):
+        # e.g. an ssh-config alias with other characters — refuse
+        out({"ok": False, "host": host,
+             "detail": "host name contains characters that cannot be scanned safely"})
+    argv = ["ssh-keyscan"]
+    if t["port"]:
+        argv += ["-p", str(t["port"])]
+    argv.append(host)
+    r = run_cmd(argv, timeout=25)
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip() and not ln.startswith("#")]
+    if not lines:
+        out({"ok": False, "host": host, "port": t["port"],
+             "detail": "no host keys returned — is sshd reachable on that port?"})
+    fp = run_cmd_in(["ssh-keygen", "-l", "-f", "-"], "\n".join(lines) + "\n")
+    fingerprints = fp.stdout.splitlines() if fp.returncode == 0 else []
+    keys = []
+    for i, ln in enumerate(lines):
+        parts = ln.split()
+        keys.append({"hostspec": parts[0] if parts else "",
+                     "type": parts[1] if len(parts) > 2 else "?",
+                     "fingerprint": fingerprints[i] if i < len(fingerprints) else ln[:120]})
+    return lines, keys
+
+
+def known_hostspecs(t):
+    """Set of (hostspec, keytype) pairs already present in known_hosts."""
+    existing = set()
+    if KNOWN_HOSTS.is_file():
+        for ln in KNOWN_HOSTS.read_text().splitlines():
+            parts = ln.split()
+            if len(parts) >= 2:
+                existing.add((parts[0], parts[1]))
+    return existing
+
+
+def cmd_hostkey_scan(payload):
+    t = parse_target_opts(payload)
+    lines, keys = scan_host_keys(t)
+    existing = known_hostspecs(t)
+    for k in keys:
+        k["already_known"] = (k["hostspec"], k["type"]) in existing
+    out({"ok": True, "host": t["host"], "port": t["port"], "keys": keys})
+
+
+def cmd_hostkey_accept(payload):
+    t = parse_target_opts(payload)
+    lines, keys = scan_host_keys(t)
+    existing = known_hostspecs(t)
+    to_add = [(ln, k) for ln, k in zip(lines, keys)
+              if (k["hostspec"], k["type"]) not in existing]
+    if not to_add:
+        out({"ok": True, "added": 0, "keys": keys,
+             "detail": "all host keys are already trusted"})
+    KNOWN_HOSTS.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(KNOWN_HOSTS.parent, 0o700)
+    prefix = ""
+    if KNOWN_HOSTS.is_file() and KNOWN_HOSTS.read_text() and not KNOWN_HOSTS.read_text().endswith("\n"):
+        prefix = "\n"
+    with open(KNOWN_HOSTS, "a") as f:
+        f.write(prefix + "\n".join(ln for ln, _ in to_add) + "\n")
+    if KNOWN_HOSTS.exists():
+        os.chmod(KNOWN_HOSTS, 0o600)
+    out({"ok": True, "added": len(to_add), "keys": keys})
 
 
 # --------------------------------------------------------------- ssh key ---
@@ -801,6 +895,10 @@ def main():
         cmd_config_set(json.load(sys.stdin))
     elif cmd == "remote-check":
         cmd_remote_check(json.load(sys.stdin))
+    elif cmd == "hostkey-scan":
+        cmd_hostkey_scan(json.load(sys.stdin))
+    elif cmd == "hostkey-accept":
+        cmd_hostkey_accept(json.load(sys.stdin))
     elif cmd == "key-get":
         cmd_key_get()
     elif cmd == "key-generate":

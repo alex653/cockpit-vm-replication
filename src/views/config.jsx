@@ -29,6 +29,7 @@ export function ConfigView() {
     const [keyConfirm, setKeyConfirm] = useState(null); // 'regenerate' | 'delete' | null
     const [keyError, setKeyError] = useState(null);
     const [copied, setCopied] = useState(false);
+    const [hostkey, setHostkey] = useState(null); // {scanning} | {scan} | {error}
 
     useEffect(() => {
         if (status && !form) {
@@ -93,6 +94,37 @@ export function ConfigView() {
         if (keyInfo?.public_key && await copyText(keyInfo.public_key)) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    /* does the last check fail specifically because of an unknown host key? */
+    const hostKeyProblem = check?.result && check.result.checks?.some(
+        c => !c.ok && /host key verification failed/i.test(c.detail || ""));
+
+    const scanHostKeys = async () => {
+        setHostkey({ scanning: true });
+        try {
+            const scan = await helper("hostkey-scan", [], JSON.stringify({
+                remote_target: form.REMOTE_TARGET.trim(),
+                ssh_opts: form.REMOTE_SSH_OPTS,
+            }));
+            setHostkey({ scan });
+        } catch (e) {
+            setHostkey({ error: errorMessage(e) });
+        }
+    };
+
+    const acceptHostKeys = async () => {
+        setHostkey(h => ({ ...h, accepting: true }));
+        try {
+            await helper("hostkey-accept", [], JSON.stringify({
+                remote_target: form.REMOTE_TARGET.trim(),
+                ssh_opts: form.REMOTE_SSH_OPTS,
+            }));
+            setHostkey(null);
+            await checkAccess();
+        } catch (e) {
+            setHostkey(h => ({ ...h, accepting: false, error: errorMessage(e) }));
         }
     };
 
@@ -227,6 +259,21 @@ export function ConfigView() {
                                             <Content component={ContentVariants.small}>
                                                 {check.result.hint}
                                             </Content>
+                                        )}
+                                        {hostKeyProblem && (
+                                            <div style={{ marginTop: "0.5rem" }}>
+                                                <Button variant="secondary"
+                                                    icon={hostkey?.scanning ? <Spinner size="sm" /> : undefined}
+                                                    isDisabled={!!hostkey?.scanning}
+                                                    onClick={scanHostKeys}>
+                                                    {hostkey?.scanning ? "Scanning…" : "Accept host key"}
+                                                </Button>
+                                                {hostkey?.error && (
+                                                    <Content component={ContentVariants.small}>
+                                                        {hostkey.error}
+                                                    </Content>
+                                                )}
+                                            </div>
                                         )}
                                     </Alert>
                                 )}
@@ -395,6 +442,45 @@ export function ConfigView() {
                         {keyConfirm === "delete" ? "Delete" : "Regenerate"}
                     </Button>
                     <Button variant="link" isDisabled={!!keyBusy} onClick={() => setKeyConfirm(null)}>
+                        Cancel
+                    </Button>
+                </ModalFooter>
+            </Modal>
+            <Modal
+                isOpen={!!hostkey?.scan}
+                onClose={() => setHostkey(null)}
+                variant="medium"
+            >
+                <ModalHeader
+                    title={hostkey?.scan
+                        ? "Trust " + hostkey.scan.host
+                          + (hostkey.scan.port ? ":" + hostkey.scan.port : "") + "?"
+                        : ""}
+                />
+                <ModalBody>
+                    <Content component={ContentVariants.p}>
+                        These are the host keys the remote server presents. If
+                        you have another way to verify them (console, the
+                        provider panel, the host's own <code>ssh-keygen -lf
+                        /etc/ssh/ssh_host_*.pub</code>), compare the
+                        fingerprints first — accepting them without checking
+                        trusts this server on first use.
+                    </Content>
+                    <pre className="log-tail mono-input" style={{ maxHeight: "14rem" }}>
+                        {hostkey?.scan?.keys?.map(k =>
+                            `${k.already_known ? "[known]  " : "[new]      "}${k.fingerprint}`).join("\n") || ""}
+                    </pre>
+                    {hostkey?.error && (
+                        <Alert variant="danger" isInline title={hostkey.error} />
+                    )}
+                </ModalBody>
+                <ModalFooter>
+                    <Button variant="primary" isDisabled={!!hostkey?.accepting}
+                        onClick={acceptHostKeys}>
+                        {hostkey?.accepting ? "Adding…" : "Accept and re-check"}
+                    </Button>
+                    <Button variant="link" isDisabled={!!hostkey?.accepting}
+                        onClick={() => setHostkey(null)}>
                         Cancel
                     </Button>
                 </ModalFooter>
