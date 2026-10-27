@@ -52,3 +52,10 @@
     border-bottom: 1px solid var(--pf-t--global--border--color--default, #e0e0e0);
     background: var(--pf-t--global--background--color--primary--default, transparent);
 }
+
+/* embedded in the shell there is no sidebar of our own — stop the PF Page
+   grid from reserving its column, so content uses the full width */
+.pf-v6-c-page.vmrep-page-embedded {
+    grid-template-areas: "header" "main";
+    grid-template-columns: 1fr;
+}

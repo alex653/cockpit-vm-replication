@@ -93,6 +93,7 @@ export function App() {
     return (
         <StatusContext.Provider value={ctx}>
             <Page
+                className={standalone ? undefined : "vmrep-page-embedded"}
                 masthead={standalone ? (
                     <Masthead>
                         <MastheadMain>
