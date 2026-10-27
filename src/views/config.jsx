@@ -2,13 +2,13 @@ import React, { useEffect, useState } from "react";
 import {
     Alert, Button, Card, CardBody, CardFooter, CardHeader, CardTitle,
     Checkbox, Content, ContentVariants, Flex, FlexItem, Form, FormGroup,
-    Grid, GridItem, HelperText, HelperTextItem, Spinner, Switch,
-    TextInput,
+    Grid, GridItem, HelperText, HelperTextItem, Modal, ModalBody,
+    ModalFooter, ModalHeader, Spinner, Switch, TextInput,
 } from "@patternfly/react-core";
 import {
     CheckCircleIcon, TimesCircleIcon,
 } from "@patternfly/react-icons";
-import { errorMessage, helper } from "../api.js";
+import { copyText, errorMessage, helper } from "../api.js";
 import { useStatus } from "../app.jsx";
 
 function toInt(v) {
@@ -24,6 +24,11 @@ export function ConfigView() {
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState(null);
     const [check, setCheck] = useState(null); // {checking} | {result} | {error}
+    const [keyInfo, setKeyInfo] = useState(null); // helper key-get result
+    const [keyBusy, setKeyBusy] = useState(null); // 'generate' | 'delete' | null
+    const [keyConfirm, setKeyConfirm] = useState(null); // 'regenerate' | 'delete' | null
+    const [keyError, setKeyError] = useState(null);
+    const [copied, setCopied] = useState(false);
 
     useEffect(() => {
         if (status && !form) {
@@ -42,6 +47,10 @@ export function ConfigView() {
             });
         }
     }, [status, form]);
+
+    useEffect(() => {
+        helper("key-get").then(setKeyInfo).catch(() => setKeyInfo({ exists: false, unavailable: true }));
+    }, []);
 
     if (!status || !form)
         return <Spinner size="lg" />;
@@ -63,6 +72,27 @@ export function ConfigView() {
             setCheck({ result });
         } catch (e) {
             setCheck({ error: errorMessage(e) });
+        }
+    };
+
+    const keyAction = async action => {
+        setKeyBusy(action);
+        setKeyError(null);
+        try {
+            const r = await helper(action === "delete" ? "key-delete" : "key-generate");
+            setKeyInfo(r.key ?? r);
+            setKeyConfirm(null);
+        } catch (e) {
+            setKeyError(errorMessage(e));
+        } finally {
+            setKeyBusy(null);
+        }
+    };
+
+    const copyPubKey = async () => {
+        if (keyInfo?.public_key && await copyText(keyInfo.public_key)) {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
         }
     };
 
@@ -208,6 +238,63 @@ export function ConfigView() {
                                     onChange={(_e, v) => set({ REMOTE_SSH_OPTS: v })} />
                             </FormGroup>
 
+                            <FormGroup label="Dedicated SSH key" fieldId="sshkey"
+                                helperText="While a dedicated key exists it is used automatically for mirroring (root's default keys are ignored). Append the public key to ~/.ssh/authorized_keys of the target user on the remote host.">
+                                {keyInfo?.exists ? (
+                                    <Flex direction={{ default: "column" }} gap={{ default: "gapSm" }}>
+                                        <Flex gap={{ default: "gapSm" }}>
+                                            <FlexItem grow={{ default: "grow" }}>
+                                                <TextInput isReadOnly id="pubkey" value={keyInfo.public_key} className="mono-input" />
+                                            </FlexItem>
+                                            <FlexItem>
+                                                <Button variant="secondary" onClick={copyPubKey}>
+                                                    {copied ? "Copied" : "Copy"}
+                                                </Button>
+                                            </FlexItem>
+                                        </Flex>
+                                        <HelperText>
+                                            <HelperTextItem>
+                                                {keyInfo.fingerprint || "fingerprint unavailable"}
+                                                {keyInfo.generated_at && ` · generated ${keyInfo.generated_at}`}
+                                            </HelperTextItem>
+                                        </HelperText>
+                                        <Flex gap={{ default: "gapSm" }}>
+                                            <FlexItem>
+                                                <Button variant="warning" isDisabled={!!keyBusy}
+                                                    onClick={() => setKeyConfirm("regenerate")}>
+                                                    Regenerate
+                                                </Button>
+                                            </FlexItem>
+                                            <FlexItem>
+                                                <Button variant="danger" isDisabled={!!keyBusy}
+                                                    onClick={() => setKeyConfirm("delete")}>
+                                                    Delete
+                                                </Button>
+                                            </FlexItem>
+                                            {keyBusy && <FlexItem><Spinner size="md" /></FlexItem>}
+                                        </Flex>
+                                    </Flex>
+                                ) : (
+                                    <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
+                                        <FlexItem>
+                                            <Button variant="secondary" isDisabled={!!keyBusy || keyInfo?.unavailable}
+                                                onClick={() => keyAction("generate")}>
+                                                Generate key
+                                            </Button>
+                                        </FlexItem>
+                                        {keyBusy && <FlexItem><Spinner size="md" /></FlexItem>}
+                                        <FlexItem>
+                                            <HelperText><HelperTextItem>
+                                                {keyInfo?.unavailable
+                                                    ? "Key management is unavailable (helper too old — update it with sudo make install-helper)."
+                                                    : "No dedicated key — ssh falls back to root's default keys."}
+                                            </HelperTextItem></HelperText>
+                                        </FlexItem>
+                                    </Flex>
+                                )}
+                                {keyError && <Alert variant="danger" isInline title={keyError} style={{ marginTop: "0.5rem" }} />}
+                            </FormGroup>
+
                             <FormGroup label="Local storage root" fieldId="storage"
                                 helperText="Directory for chains. Changing it does not move existing data — copy or clean up manually.">
                                 <TextInput id="storage" value={form.STORAGE_ROOT}
@@ -284,6 +371,34 @@ export function ConfigView() {
                     </CardFooter>
                 </Card>
             </GridItem>
+            <Modal
+                isOpen={!!keyConfirm}
+                onClose={() => setKeyConfirm(null)}
+                variant="small"
+            >
+                <ModalHeader title={
+                    keyConfirm === "delete" ? "Delete the dedicated SSH key?" : "Regenerate the dedicated SSH key?"
+                } />
+                <ModalBody>
+                    <Content component={ContentVariants.p}>
+                        {keyConfirm === "delete"
+                            ? "The key pair is removed from this host. ssh falls back to root's default keys; remote hosts that only had the dedicated key will reject connections until you install another key."
+                            : "A new key pair replaces the current one. The old key stops working immediately — install the new public key on every remote host before the next sync, otherwise mirroring will fail (local copies are not affected)."}
+                    </Content>
+                </ModalBody>
+                <ModalFooter>
+                    <Button
+                        variant={keyConfirm === "delete" ? "danger" : "primary"}
+                        isDisabled={!!keyBusy}
+                        onClick={() => keyAction(keyConfirm)}
+                    >
+                        {keyConfirm === "delete" ? "Delete" : "Regenerate"}
+                    </Button>
+                    <Button variant="link" isDisabled={!!keyBusy} onClick={() => setKeyConfirm(null)}>
+                        Cancel
+                    </Button>
+                </ModalFooter>
+            </Modal>
         </Grid>
     );
 }

@@ -21,6 +21,9 @@ Subcommands:
     remote-check                  probe SSH access to a remote target (JSON
                                   on stdin: {"remote_target", "ssh_opts"} —
                                   form values, they need not be saved)
+    key-get                       info about the dedicated ssh key
+    key-generate                  create (or regenerate) the key pair
+    key-delete                    remove the key pair
     run [--vm NAME]               start vm-replicate detached (one VM or all)
     run-status                    is a manual run active + its log tail
     restore-start VM CHAIN TARGET assemble chain into TARGET (detached)
@@ -44,7 +47,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 CONFIG_PATH = Path("/etc/vm-replication/vms.conf")
 RUN_DIR = Path("/run")
@@ -481,14 +484,23 @@ def cmd_config_set(payload):
 
 TARGET_RE = re.compile(r"^([^@\s]{1,128})@([^:\s]{1,253}):(/.{0,499}|.{1,500})$")
 
+# dedicated replication keypair; picked up automatically by vm-replicate
+# and by remote-check while it exists
+KEY_PATH = Path("/etc/vm-replication/id_ed25519")
 
-def auth_hint(stderr):
+
+def auth_hint(stderr, has_key=False):
     """Human hint for a failed ssh connection."""
     s = (stderr or "").lower()
     if "host key verification failed" in s:
         return ("The remote host key is not known to root yet. Accept it once "
                 "by running the printed ssh command in a terminal, then re-check.")
     if "permission denied" in s:
+        if has_key:
+            return ("Key authentication was rejected. Append the dedicated "
+                    f"public key ({KEY_PATH}.pub) to ~/.ssh/authorized_keys of "
+                    "the target user on the remote host, or run:  "
+                    f"sudo ssh-copy-id -i {KEY_PATH}.pub <same ssh options> user@host")
         return ("Key authentication was rejected. Install root's key on the "
                 "remote host:  sudo ssh-copy-id <same ssh options> user@host")
     if "connection refused" in s:
@@ -534,19 +546,23 @@ def cmd_remote_check(payload):
             port = o[2:]
 
     def ssh_argv(remote_command):
+        extra = []
+        if KEY_PATH.is_file():
+            # same rule as vm-replicate: the dedicated key wins, defaults ignored
+            extra = ["-i", str(KEY_PATH), "-o", "IdentitiesOnly=yes"]
         return ["ssh", *opt_list,
-                "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", *extra,
                 f"{user}@{host}", remote_command]
 
     # 1) TCP + host key + key authentication
-    r = run_cmd([*ssh_argv("true"), ], timeout=25)
+    r = run_cmd(ssh_argv("true"), timeout=25)
     checks.append({
         "name": "SSH connection and key auth",
         "ok": r.returncode == 0,
         "detail": "connected, public key accepted" if r.returncode == 0
                   else (r.stderr.strip().splitlines() or ["ssh failed"])[-1][:200],
     })
-    hint = None if r.returncode == 0 else auth_hint(r.stderr)
+    hint = None if r.returncode == 0 else auth_hint(r.stderr, KEY_PATH.is_file())
     if r.returncode != 0:
         out({"ok": False, "target": target, "port": port, "checks": checks, "hint": hint})
 
@@ -590,6 +606,54 @@ def cmd_remote_check(payload):
     })
     out({"ok": writable and has_rsync, "target": target, "port": port,
          "checks": checks})
+
+
+# --------------------------------------------------------------- ssh key ---
+
+def key_info():
+    pub = Path(str(KEY_PATH) + ".pub")
+    exists = KEY_PATH.is_file() and pub.is_file()
+    info = {
+        "path": str(KEY_PATH),
+        "exists": exists,
+        "used_automatically": exists,
+    }
+    if exists:
+        info["public_key"] = pub.read_text().strip()
+        r = run_cmd(["ssh-keygen", "-lf", str(pub)])
+        info["fingerprint"] = r.stdout.strip() if r.returncode == 0 else None
+        info["generated_at"] = iso(KEY_PATH.stat().st_mtime)
+    return info
+
+
+def cmd_key_get():
+    out(key_info())
+
+
+def cmd_key_generate():
+    pub = Path(str(KEY_PATH) + ".pub")
+    KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    for p in (KEY_PATH, pub):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+    comment = f"vm-replication@{socket.gethostname()} {datetime.now().astimezone():%Y-%m-%d}"
+    r = run_cmd(["ssh-keygen", "-t", "ed25519", "-N", "", "-q",
+                 "-C", comment, "-f", str(KEY_PATH)], timeout=30)
+    if r.returncode != 0 or not pub.is_file():
+        fail(r.stderr.strip() or "ssh-keygen failed")
+    os.chmod(KEY_PATH, 0o600)
+    out(key_info())
+
+
+def cmd_key_delete():
+    removed = []
+    for p in (KEY_PATH, Path(str(KEY_PATH) + ".pub")):
+        if p.exists():
+            os.remove(p)
+            removed.append(str(p))
+    out({"ok": True, "removed": removed, "key": key_info()})
 
 
 # ------------------------------------------------------------------ run ---
@@ -737,6 +801,12 @@ def main():
         cmd_config_set(json.load(sys.stdin))
     elif cmd == "remote-check":
         cmd_remote_check(json.load(sys.stdin))
+    elif cmd == "key-get":
+        cmd_key_get()
+    elif cmd == "key-generate":
+        cmd_key_generate()
+    elif cmd == "key-delete":
+        cmd_key_delete()
     elif cmd == "run":
         vm = rest[1] if len(rest) >= 2 and rest[0] == "--vm" else None
         cmd_run(vm)

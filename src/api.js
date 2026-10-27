@@ -40,6 +40,25 @@ export function errorMessage(e) {
     return String(e?.message || e?.toString() || e || "unknown error");
 }
 
+/* clipboard that also works inside the cockpit iframe without permissions */
+export async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch { ok = false; }
+        ta.remove();
+        return ok;
+    }
+}
+
 /* ------------------------------------------------------------- format --- */
 
 export function fmtBytes(n, digits = 1) {

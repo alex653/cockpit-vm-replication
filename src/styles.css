@@ -73,3 +73,9 @@
 .check-list .ok-icon { color: var(--pf-t--global--icon--color--status--success--default, #3d7316); }
 .check-list .fail-icon { color: var(--pf-t--global--icon--color--status--danger--default, #c9190b); }
 .check-list li.fail { color: var(--pf-t--global--text--color--status--danger--default, #a60000); }
+
+/* read-only display of the dedicated ssh public key */
+.mono-input {
+    font-family: var(--pf-t--global--font--family--mono, monospace);
+    font-size: 0.8rem;
+}

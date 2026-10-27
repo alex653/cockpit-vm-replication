@@ -85,9 +85,12 @@ finish_chain_dir() { # $1=vm $2=каталог — метаданные рядо
 
 sync_vm() { # $1=vm; 0 = успех
     [ -n "${REMOTE_TARGET:-}" ] || return 0
+    local opts=${REMOTE_SSH_OPTS:-} key=/etc/vm-replication/id_ed25519
+    # выделенный ключ из Cockpit-интерфейса подхватывается автоматически
+    [ -r "$key" ] && opts="$opts -i $key -o IdentitiesOnly=yes"
     log "  rsync -> $REMOTE_TARGET/$1/"
     rsync -aHS --delete --info=stats1 \
-        -e "ssh ${REMOTE_SSH_OPTS:-}" \
+        -e "ssh $opts" \
         "$STORAGE_ROOT/$1/" "$REMOTE_TARGET/$1/"
 }
 
