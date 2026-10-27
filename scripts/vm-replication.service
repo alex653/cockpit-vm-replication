@@ -1,0 +1,12 @@
+[Unit]
+Description=Репликация libvirt ВМ на удалённый хост (vm-replicate)
+After=libvirtd.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vm-replicate
+SyslogIdentifier=vm-replication
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

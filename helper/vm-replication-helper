@@ -1,0 +1,650 @@
+#!/usr/bin/env python3
+"""vm-replication-helper — privileged JSON API used by the Cockpit UI.
+
+Invoked as:
+    vm-replication-helper <subcommand> [args]
+
+Every subcommand prints a single JSON object to stdout and exits 0 on
+success. On failure it prints a human-readable message to stderr and
+exits non-zero.
+
+The helper is meant to be run as root (via `sudo -n` granted to the
+helper path only, or via pkexec). It deliberately does NOT accept
+arbitrary commands: every argument is validated, paths are confined to
+STORAGE_ROOT, and external programs are spawned with argument lists
+(never through a shell).
+
+Subcommands:
+    status                        full JSON snapshot for the dashboard
+    config-get                    parsed /etc/vm-replication/vms.conf
+    config-set                    merge JSON (stdin) into the config
+    run [--vm NAME]               start vm-replicate detached (one VM or all)
+    run-status                    is a manual run active + its log tail
+    restore-start VM CHAIN TARGET assemble chain into TARGET (detached)
+    restore-status                restore job status + log tail
+    chain-delete VM CHAIN         delete one stored chain
+    timer ACTION                  start|stop|restart|enable|disable the timer
+    logs [N]                      last N journal lines (default 300)
+"""
+
+import fcntl
+import json
+import os
+import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+__version__ = "1.0.0"
+
+CONFIG_PATH = Path("/etc/vm-replication/vms.conf")
+RUN_DIR = Path("/run")
+LOCK_FILE = Path("/run/lock/vm-replication.lock")
+MANUAL_PID = RUN_DIR / "vm-replication-manual.pid"
+MANUAL_LOG = RUN_DIR / "vm-replication-manual.log"
+RESTORE_PID = RUN_DIR / "vm-replication-restore.pid"
+RESTORE_LOG = RUN_DIR / "vm-replication-restore.log"
+REPLICATE = shutil.which("vm-replicate") or "/usr/local/sbin/vm-replicate"
+RESTORE = shutil.which("vm-restore") or "/usr/local/sbin/vm-restore"
+
+VM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
+CHAIN_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+# key: (type, validator) — the only keys config-set is allowed to touch
+CONFIG_KEYS = {
+    "VMS": ("space-list", None),
+    "REMOTE_TARGET": ("str", lambda v: v == "" or re.match(r"^[^@\s]+@[^:\s]+:.+$", v)),
+    "REMOTE_SSH_OPTS": ("str", None),
+    "STORAGE_ROOT": ("abs-path", None),
+    "FULL_EVERY_DAYS": ("int", (1, 3650)),
+    "MAX_INCS": ("int", (1, 10000)),
+    "KEEP_CHAINS": ("int", (1, 100)),
+    "BACKUP_TIMEOUT": ("int", (60, 604800)),
+    "QEMU_IMG_CHECK": ("int", (0, 1)),
+    "LIBVIRT_URI": ("str", None),
+}
+
+INT_DEFAULTS = {"FULL_EVERY_DAYS": 7, "MAX_INCS": 48, "KEEP_CHAINS": 2,
+                "BACKUP_TIMEOUT": 14400, "QEMU_IMG_CHECK": 1}
+STR_DEFAULTS = {"VMS": "", "REMOTE_TARGET": "", "REMOTE_SSH_OPTS":
+                "-o BatchMode=yes -o ConnectTimeout=30",
+                "STORAGE_ROOT": "/mnt/dd/replication", "LIBVIRT_URI": "qemu:///system"}
+
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def out(obj):
+    json.dump(obj, sys.stdout, ensure_ascii=False, default=str)
+    print()
+    sys.exit(0)
+
+
+def run_cmd(argv, timeout=30):
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+
+
+# ---------------------------------------------------------------- config ---
+
+def parse_config(path=CONFIG_PATH):
+    cfg = {}
+    if not path.is_file():
+        return cfg
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"^([A-Z_]+)=(.*)$", line)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+            val = val[1:-1]
+        cfg[key] = val
+    return cfg
+
+
+def cfg_get(cfg, key):
+    return cfg.get(key, INT_DEFAULTS.get(key, STR_DEFAULTS.get(key, "")))
+
+
+def storage_root(cfg):
+    sr = cfg_get(cfg, "STORAGE_ROOT") or "/mnt/dd/replication"
+    return os.path.normpath(sr)
+
+
+# ----------------------------------------------------------------- virsh ---
+
+def virsh(cfg, *args, timeout=30):
+    uri = cfg_get(cfg, "LIBVIRT_URI") or "qemu:///system"
+    return run_cmd(["virsh", "-c", uri, *args], timeout=timeout)
+
+
+def list_all_vms(cfg):
+    r = virsh(cfg, "list", "--all", "--name")
+    if r.returncode != 0:
+        return []
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+
+
+def vm_state(cfg, vm):
+    r = virsh(cfg, "domstate", vm)
+    return r.stdout.strip() if r.returncode == 0 else "unknown"
+
+
+def vm_checkpoints(cfg, vm):
+    r = virsh(cfg, "checkpoint-list", vm, "--name")
+    if r.returncode != 0:
+        return []
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+
+
+# ---------------------------------------------------------------- status ---
+
+def dir_size(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def iso(ts):
+    return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def scan_chains(root, vm):
+    """List chain directories of a VM with per-chain statistics."""
+    chains = []
+    vm_dir = os.path.join(root, vm)
+    if not os.path.isdir(vm_dir):
+        return chains
+    for entry in sorted(os.listdir(vm_dir)):
+        d = os.path.join(vm_dir, entry)
+        if not os.path.isdir(d):
+            continue
+        fulls, incs = [], 0
+        inc_bytes = 0
+        for f in os.listdir(d):
+            fp = os.path.join(d, f)
+            try:
+                st = os.lstat(fp)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if f.startswith("full-") and f.endswith(".qcow2"):
+                fulls.append({"file": f, "size": st.st_size, "mtime": iso(st.st_mtime)})
+            elif f.startswith("inc-") and f.endswith(".qcow2"):
+                incs += 1
+                inc_bytes += st.st_size
+        full_bytes = sum(f["size"] for f in fulls)
+        times = [f["mtime"] for f in fulls]
+        if incs:
+            newest_inc = max(
+                (os.lstat(os.path.join(d, f)).st_mtime for f in os.listdir(d)
+                 if f.startswith("inc-") and f.endswith(".qcow2")),
+                default=0)
+            times.append(iso(newest_inc))
+        chains.append({
+            "name": entry,
+            "kind": "cold" if entry.startswith("cold-") else "chain",
+            "created": iso(os.lstat(d).st_mtime),
+            "full_files": fulls,
+            "full_bytes": full_bytes,
+            "inc_count": incs,
+            "inc_bytes": inc_bytes,
+            "total_bytes": full_bytes + inc_bytes,
+            "last_backup": max(times) if times else None,
+            "has_domain_xml": os.path.isfile(os.path.join(d, "domain.xml")),
+        })
+    chains.sort(key=lambda c: c["created"], reverse=True)
+    return chains
+
+
+def parse_journal(lines):
+    """Extract recent runs from 'vm-replication' journal lines."""
+    runs = []
+    cur = None
+    marker = re.compile(r"^(\d{4}-\d{2}-\d{2}[T ][0-9:]+).*== (\S+) ==")
+    for line in lines:
+        m = marker.match(line)
+        if m:
+            cur = {"ts": m.group(1), "vm": m.group(2), "status": "running",
+                   "mode": None, "messages": []}
+            runs.append(cur)
+            continue
+        if cur is None:
+            continue
+        if "полная копия" in line:
+            cur["mode"] = "full"
+        elif "инкремент" in line:
+            cur["mode"] = cur["mode"] or "increment"
+        elif "холодная копия" in line or "холодную копию" in line:
+            cur["mode"] = cur["mode"] or "cold"
+        if "ОШИБКА" in line or "ERROR" in line:
+            cur["status"] = "error"
+        if "rsync не удался" in line and cur["status"] != "error":
+            cur["status"] = "warning"
+        cur["messages"].append(line.split("] ", 1)[-1].strip())
+        if line.rstrip().endswith("готово") and cur["status"] == "running":
+            cur["status"] = "ok"
+    return runs
+
+
+def journalctl(cfg, lines=300):
+    r = run_cmd(["journalctl", "-t", "vm-replication", "-n", str(lines),
+                 "-o", "short-iso", "--no-pager"])
+    return r.stdout.splitlines() if r.stdout else []
+
+
+def timer_info():
+    def show(unit, props):
+        r = run_cmd(["systemctl", "show", unit] +
+                    [f"--property={p}" for p in props])
+        res = {}
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    res[k] = v
+        return res
+
+    t = show("vm-replication.timer", ["ActiveState", "UnitFileState",
+                                      "NextElapseUSecRealtime", "LastTriggerUSec"])
+    s = show("vm-replication.service", ["Result", "ExecMainStatus",
+                                        "ActiveEnterTimestamp"])
+    return {
+        "installed": bool(t),
+        "active": t.get("ActiveState") == "active",
+        "unit_file_state": t.get("UnitFileState", ""),
+        "next_elapse": t.get("NextElapseUSecRealtime", "") or None,
+        "last_trigger": t.get("LastTriggerUSec", "") or None,
+        "service_result": s.get("Result", ""),
+        "service_last_status": s.get("ExecMainStatus", ""),
+        "service_last_start": s.get("ActiveEnterTimestamp", "") or None,
+    }
+
+
+def tail_file(path, n=60):
+    try:
+        return path.read_text(errors="replace").splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def pid_alive(pidfile):
+    try:
+        pid = int(pidfile.read_text().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def replication_busy():
+    """True when vm-replicate holds its lock (timer or manual run)."""
+    try:
+        fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        finally:
+            os.close(fd)
+    except OSError:
+        return True
+
+
+def cmd_status():
+    cfg = parse_config()
+    root = storage_root(cfg)
+    all_vms = list_all_vms(cfg)
+
+    cfg_vms = cfg_get(cfg, "VMS").split()
+    disk_vms = []
+    if os.path.isdir(root):
+        disk_vms = [d for d in os.listdir(root)
+                    if os.path.isdir(os.path.join(root, d))]
+    vms = list(dict.fromkeys(cfg_vms + disk_vms))
+
+    runs = parse_journal(journalctl(cfg, 500))
+    last_by_vm = {}
+    for run in runs:
+        last_by_vm[run["vm"]] = run
+
+    vms_json = []
+    for vm in vms:
+        chains = scan_chains(root, vm)
+        active = next((c["name"] for c in chains
+                       if c["kind"] == "chain" and c["full_files"]), None)
+        state = vm_state(cfg, vm) if vm in all_vms else "missing"
+        cps = vm_checkpoints(cfg, vm) if state == "running" else []
+        full_age_days = None
+        inc_count = 0
+        if active:
+            act = next(c for c in chains if c["name"] == active)
+            full_mtime = max((f["mtime"] for f in act["full_files"]), default=None)
+            if full_mtime:
+                dt = datetime.fromisoformat(full_mtime)
+                full_age_days = (datetime.now(dt.tzinfo) - dt).days
+            inc_count = act["inc_count"]
+        next_action = None
+        if state == "running":
+            try:
+                if (full_age_days is not None and
+                        full_age_days >= int(cfg_get(cfg, "FULL_EVERY_DAYS"))) or \
+                        inc_count >= int(cfg_get(cfg, "MAX_INCS")):
+                    next_action = "full"
+                else:
+                    next_action = "increment"
+            except (TypeError, ValueError):
+                next_action = None
+        vms_json.append({
+            "name": vm,
+            "in_config": vm in cfg_vms,
+            "state": state,
+            "chains": chains,
+            "active_chain": active,
+            "checkpoints": cps,
+            "full_age_days": full_age_days,
+            "next_action": next_action,
+            "last_run": last_by_vm.get(vm),
+        })
+
+    st = os.statvfs(root) if os.path.isdir(root) else None
+    busy = replication_busy()
+    manual_pid = pid_alive(MANUAL_PID)
+    restore_pid = pid_alive(RESTORE_PID)
+
+    out({
+        "helper_version": __version__,
+        "hostname": socket.gethostname(),
+        "now": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "timer": timer_info(),
+        "storage": {
+            "root": root,
+            "exists": st is not None,
+            "free_bytes": st.f_bavail * st.f_frsize if st else None,
+            "total_bytes": st.f_blocks * st.f_frsize if st else None,
+        },
+        "remote": {
+            "target": cfg_get(cfg, "REMOTE_TARGET"),
+            "ssh_opts": cfg_get(cfg, "REMOTE_SSH_OPTS"),
+            "configured": bool(cfg_get(cfg, "REMOTE_TARGET")),
+        },
+        "config": cfg,
+        "vms": vms_json,
+        "all_vms": all_vms,
+        "runs": runs[-15:],
+        "busy": busy,
+        "manual_run": {
+            "running": busy or manual_pid is not None,
+            "log_tail": tail_file(MANUAL_LOG),
+        },
+        "restore": {
+            "running": restore_pid is not None,
+            "log_tail": tail_file(RESTORE_LOG),
+        },
+        "scripts": {
+            "vm-replicate": os.path.exists(REPLICATE),
+            "vm-restore": os.path.exists(RESTORE),
+        },
+    })
+
+
+# ----------------------------------------------------------- config-set ---
+
+def validate_value(key, raw):
+    kind = CONFIG_KEYS[key][0]
+    if kind == "int":
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            fail(f"{key}: expected an integer, got {raw!r}")
+        lo, hi = CONFIG_KEYS[key][1]
+        if not lo <= v <= hi:
+            fail(f"{key}: {v} is out of range {lo}..{hi}")
+        return str(v)
+    if kind == "space-list":
+        vms = [str(v).strip() for v in raw] if isinstance(raw, list) \
+            else str(raw or "").split()
+        for v in vms:
+            if not VM_RE.match(v):
+                fail(f"VMS: invalid VM name {v!r}")
+        return " ".join(vms)
+    if kind == "abs-path":
+        v = str(raw or "").strip()
+        if not v.startswith("/"):
+            fail(f"{key}: must be an absolute path")
+        if any(c in v for c in "\n\r\"'"):
+            fail(f"{key}: invalid characters")
+        return v
+    v = str(raw if raw is not None else "").strip()
+    if "\n" in v or "\r" in v:
+        fail(f"{key}: newlines are not allowed")
+    validator = CONFIG_KEYS[key][1]
+    if validator and not validator(v):
+        fail(f"{key}: invalid value {v!r} (expected user@host:/path)")
+    return v
+
+
+def cmd_config_set(payload):
+    if not isinstance(payload, dict):
+        fail("expected a JSON object on stdin")
+    unknown = set(payload) - set(CONFIG_KEYS)
+    if unknown:
+        fail(f"unknown config keys: {', '.join(sorted(unknown))}")
+    new_values = {k: validate_value(k, v) for k, v in payload.items()}
+
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    original = CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.is_file() else [
+        "# Конфигурация репликации libvirt ВМ; читается скриптом vm-replicate", ""]
+
+    seen = set()
+    result = []
+    for line in original:
+        m = re.match(r"^([A-Z_]+)=", line)
+        if m and m.group(1) in new_values:
+            key = m.group(1)
+            result.append(f'{key}="{new_values[key]}"')
+            seen.add(key)
+        else:
+            result.append(line)
+    for key in new_values:
+        if key not in seen:
+            result.append(f'{key}="{new_values[key]}"')
+
+    fd, tmp = tempfile.mkstemp(dir=str(CONFIG_PATH.parent), prefix=".vms.conf.")
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(result).rstrip("\n") + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, CONFIG_PATH)
+    out({"ok": True, "config": parse_config()})
+
+
+# ------------------------------------------------------------------ run ---
+
+def spawn_detached(argv, pidfile, logfile, extra_env=None):
+    if pid_alive(pidfile):
+        fail("another job started by the UI is still running")
+    if replication_busy():
+        fail("replication is already running (timer or another manual run)")
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
+    log = open(logfile, "w")
+    proc = subprocess.Popen(
+        argv, stdout=log, stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL, start_new_session=True, env=env)
+    pidfile.write_text(str(proc.pid))
+    return proc.pid
+
+
+def cmd_run(vm=None):
+    cfg = parse_config()
+    env = None
+    if vm:
+        if not VM_RE.match(vm):
+            fail(f"invalid VM name {vm!r}")
+        if vm not in list_all_vms(cfg):
+            fail(f"VM {vm!r} does not exist")
+        lines = CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.is_file() else []
+        tmp = RUN_DIR / "vm-replication-manual.conf"
+        tmp.write_text("\n".join(
+            f'VMS="{vm}"' if l.startswith("VMS=") else l for l in lines
+        ).rstrip("\n") + "\n")
+        env = {"CONFIG": str(tmp)}
+    if not os.path.exists(REPLICATE):
+        fail(f"{REPLICATE} not found — is the replication stack installed?")
+    pid = spawn_detached([REPLICATE], MANUAL_PID, MANUAL_LOG, env)
+    out({"ok": True, "pid": pid})
+
+
+def cmd_run_status():
+    pid = pid_alive(MANUAL_PID)
+    busy = replication_busy()
+    out({"running": busy or pid is not None,
+         "pid": pid,
+         "lock_busy": busy,
+         "log_tail": tail_file(MANUAL_LOG)})
+
+
+# -------------------------------------------------------------- restore ---
+
+def validated_chain_path(cfg, vm, chain):
+    if not VM_RE.match(vm):
+        fail(f"invalid VM name {vm!r}")
+    if not CHAIN_RE.match(chain):
+        fail(f"invalid chain name {chain!r}")
+    root = Path(storage_root(cfg)).resolve()
+    chain_dir = (root / vm / chain)
+    if not chain_dir.is_dir():
+        fail(f"chain directory not found: {chain_dir}")
+    real = chain_dir.resolve()
+    if root not in real.parents:
+        fail("path escapes the storage root — refused")
+    return real
+
+
+def cmd_restore_start(vm, chain, target):
+    cfg = parse_config()
+    chain_dir = validated_chain_path(cfg, vm, chain)
+    if not os.path.exists(RESTORE):
+        fail(f"{RESTORE} not found — is the replication stack installed?")
+    target = os.path.normpath(str(target or ""))
+    if not target.startswith("/") or target.endswith("/"):
+        fail("target must be an absolute file path")
+    if os.path.exists(target):
+        fail(f"target already exists: {target} (remove it first)")
+    parent = os.path.dirname(target)
+    if not os.path.isdir(parent):
+        fail(f"target directory does not exist: {parent}")
+
+    total = sum(c["total_bytes"] for c in scan_chains(storage_root(cfg), vm)
+                if c["name"] == chain)
+    st = os.statvfs(parent)
+    free = st.f_bavail * st.f_frsize
+    if total and free < total:
+        fail(f"not enough space on {parent}: need ~{total >> 30} GiB, free {free >> 30} GiB")
+
+    pid = spawn_detached([RESTORE, str(chain_dir), target], RESTORE_PID, RESTORE_LOG)
+    out({"ok": True, "pid": pid, "target": target})
+
+
+def cmd_restore_status():
+    pid = pid_alive(RESTORE_PID)
+    out({"running": pid is not None, "pid": pid,
+         "log_tail": tail_file(RESTORE_LOG)})
+
+
+# ---------------------------------------------------------- chain-delete ---
+
+def cmd_chain_delete(vm, chain):
+    cfg = parse_config()
+    if replication_busy():
+        fail("replication is running — try again when it finishes")
+    chain_dir = validated_chain_path(cfg, vm, chain)
+    cold = chain_dir.name.startswith("cold-")
+    shutil.rmtree(chain_dir)
+    if not cold:
+        # stale checkpoints pointing at the removed chain are pruned by the
+        # next replication run; drop them now to keep `checkpoint-list` clean
+        for cp in vm_checkpoints(cfg, vm):
+            if f"-{chain}-" in cp:
+                virsh(cfg, "checkpoint-delete", vm, cp)
+    out({"ok": True})
+
+
+# ----------------------------------------------------------------- misc ---
+
+def cmd_timer(action):
+    if action not in ("start", "stop", "restart", "enable", "disable"):
+        fail(f"unknown action {action!r}")
+    r = run_cmd(["systemctl", action, "vm-replication.timer"])
+    if r.returncode != 0:
+        fail(r.stderr.strip() or f"systemctl {action} failed")
+    out({"ok": True, "timer": timer_info()})
+
+
+def cmd_logs(n):
+    try:
+        n = max(1, min(int(n), 5000))
+    except ValueError:
+        fail("lines must be an integer")
+    out({"lines": journalctl(parse_config(), n)})
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        fail(__doc__)
+    cmd, rest = args[0], args[1:]
+    if cmd == "status":
+        cmd_status()
+    elif cmd == "config-get":
+        out({"config": parse_config()})
+    elif cmd == "config-set":
+        cmd_config_set(json.load(sys.stdin))
+    elif cmd == "run":
+        vm = rest[1] if len(rest) >= 2 and rest[0] == "--vm" else None
+        cmd_run(vm)
+    elif cmd == "run-status":
+        cmd_run_status()
+    elif cmd == "restore-start":
+        if len(rest) != 3:
+            fail("usage: restore-start VM CHAIN TARGET")
+        cmd_restore_start(*rest)
+    elif cmd == "restore-status":
+        cmd_restore_status()
+    elif cmd == "chain-delete":
+        if len(rest) != 2:
+            fail("usage: chain-delete VM CHAIN")
+        cmd_chain_delete(*rest)
+    elif cmd == "timer":
+        if len(rest) != 1:
+            fail("usage: timer ACTION")
+        cmd_timer(rest[0])
+    elif cmd == "logs":
+        cmd_logs(rest[0] if rest else 300)
+    else:
+        fail(f"unknown subcommand {cmd!r}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — the helper must always answer JSON-less cleanly
+        fail(f"{type(exc).__name__}: {exc}")

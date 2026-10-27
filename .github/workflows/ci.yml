@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Sanity check dist
+        run: |
+          test -f dist/index.js
+          test -f dist/index.css
+          python3 -m json.tool dist/manifest.json > /dev/null
+          grep -q "base1/cockpit.js" dist/index.html
+
+      - name: Shellcheck helper and scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck scripts/vm-replicate scripts/vm-restore
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci || npm install
+      - run: npm run build
+      - name: Build release tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tar --transform "s,^,cockpit-vm-replication-${VERSION}/," \
+              -czf "cockpit-vm-replication-${VERSION}.tar.gz" \
+              dist helper scripts Makefile README.md README.ru.md LICENSE package.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: cockpit-vm-replication-*.tar.gz

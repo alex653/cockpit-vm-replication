@@ -1,0 +1,26 @@
+{
+  "name": "cockpit-vm-replication",
+  "description": "Cockpit application for incremental replication of libvirt VMs (virsh backup-begin + checkpoints)",
+  "version": "1.0.0",
+  "author": "VM Replication contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourname/cockpit-vm-replication.git"
+  },
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --outfile=dist/index.js --format=esm --jsx=automatic --loader:.js=jsx --minify --sourcemap --loader:.css=css --loader:.woff2=file --loader:.woff=file --loader:.ttf=file --loader:.svg=dataurl --loader:.png=dataurl --loader:.jpg=dataurl --external:cockpit && cp src/manifest.json src/index.html dist/",
+    "watch": "esbuild src/index.js --bundle --outfile=dist/index.js --format=esm --jsx=automatic --loader:.js=jsx --sourcemap --loader:.css=css --loader:.woff2=file --loader:.woff=file --loader:.ttf=file --loader:.svg=dataurl --loader:.png=dataurl --loader:.jpg=dataurl --external:cockpit --watch && cp src/manifest.json src/index.html dist/"
+  },
+  "dependencies": {
+    "@patternfly/react-core": "^6.2.0",
+    "@patternfly/react-icons": "^6.2.0",
+    "@patternfly/react-table": "^6.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

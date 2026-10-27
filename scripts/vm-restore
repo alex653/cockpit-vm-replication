@@ -1,0 +1,49 @@
+#!/bin/bash
+# vm-restore — собрать диск ВМ из цепочки репликации (full + инкременты).
+#
+# Использование:  vm-restore <каталог-цепочки> [выходной-файл]
+#
+# Для каждого full-<dev>.qcow2 в каталоге строится цепочка
+# full -> inc-*-<dev>.qcow2 (через backing-файлы) и сплющивается
+# в один qcow2: restored-<dev>.qcow2 (или в указанный файл, если дисков один).
+# Далее: virsh define <каталог>/domain.xml и поправить путь к диску (virsh edit <vm>),
+# либо просто положить restored-*.qcow2 по пути из XML.
+set -euo pipefail
+
+[ $# -ge 1 ] || { grep '^#' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+chain=$1
+[ -d "$chain" ] || { echo "нет каталога $chain" >&2; exit 2; }
+[ "$(id -u)" -eq 0 ] || { echo "запускать от root" >&2; exit 2; }
+
+shopt -s nullglob
+found=0
+for fullpath in "$chain"/full-*.qcow2; do
+    found=1
+    dev=${fullpath##*-}; dev=${dev%.qcow2}
+    if [ -n "${2:-}" ]; then
+        out=$2
+    else
+        out="$chain/restored-$dev.qcow2"
+    fi
+
+    work=$(mktemp -d "$(dirname "$out")/.restore.XXXXXX")
+    trap 'rm -rf "$work"' EXIT
+    echo "Восстанавливаю $dev: $fullpath -> $out"
+
+    # копии, чтобы не менять файлы цепочки (rebase правит метаданные)
+    cp --sparse=always "$fullpath" "$work/layer0.qcow2"
+    prev=$work/layer0.qcow2
+    n=0
+    for inc in $(find "$chain" -maxdepth 1 -name "inc-*-$dev.qcow2" 2>/dev/null | sort); do
+        n=$((n + 1))
+        cp --sparse=always "$inc" "$work/layer$n.qcow2"
+        qemu-img rebase -u -f qcow2 -F qcow2 -b "$prev" "$work/layer$n.qcow2"
+        prev=$work/layer$n.qcow2
+    done
+    echo "  инкрементов: $n, собираю итоговый образ..."
+    qemu-img convert -O qcow2 -S 4096 "$prev" "$out"
+    qemu-img check "$out" | tail -n1
+    rm -rf "$work"
+    echo "  готово: $out"
+done
+[ "$found" -eq 1 ] || { echo "в $chain нет full-*.qcow2" >&2; exit 1; }

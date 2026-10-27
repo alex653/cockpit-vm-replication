@@ -1,0 +1,220 @@
+#!/bin/bash
+# vm-replicate — инкрементальная репликация libvirt ВМ (KVM) на удалённый хост.
+#
+# Механизм:
+#   * ВМ запущена  -> virsh backup-begin (push-режим) + checkpoints:
+#     полная копия раз в FULL_EVERY_DAYS (или при переполнении MAX_INCS),
+#     между ними — инкременты только из изменившихся блоков. ВМ не останавливается.
+#   * ВМ выключена -> прямая rsync-копия qcow2 в cold-каталог (диск не используется,
+#     копия консистентна), чекпоинты сохраняются.
+# Результат: $STORAGE_ROOT/<vm>/<цепочка>/ = full-*.qcow2 + inc-*.qcow2
+#             + domain.xml + vm-restore; каталог зеркалится на REMOTE_TARGET
+#             (rsync --delete), если он задан в конфиге.
+#
+# Восстановление на приёмной стороне:  vm-restore <каталог-цепочки> [файл-результата]
+set -euo pipefail
+
+CONFIG=${CONFIG:-/etc/vm-replication/vms.conf}
+[ -r "$CONFIG" ] || { echo "нет конфига $CONFIG" >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$CONFIG"
+
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
+die() { log "ОШИБКА: $*" >&2; exit 1; }
+
+: "${VMS:?в $CONFIG не задан VMS}"
+STORAGE_ROOT=${STORAGE_ROOT:-/mnt/dd/replication}
+FULL_EVERY_DAYS=${FULL_EVERY_DAYS:-7}
+MAX_INCS=${MAX_INCS:-48}
+KEEP_CHAINS=${KEEP_CHAINS:-2}
+BACKUP_TIMEOUT=${BACKUP_TIMEOUT:-14400}
+QEMU_IMG_CHECK=${QEMU_IMG_CHECK:-1}
+VIRSH=(virsh -c "${LIBVIRT_URI:-qemu:///system}")
+
+[ "$(id -u)" -eq 0 ] || die "запускать от root"
+
+# защита от наложения запусков (таймер + ручной запуск)
+exec 9>/run/lock/vm-replication.lock
+flock -n 9 || { log "уже запущено — пропуск"; exit 0; }
+
+TMP=$(mktemp -d /run/vm-replication.XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
+
+ts() { date +%Y%m%d-%H%M%S; }
+
+disk_list() { # $1=vm -> построчно "<dev> <путь>" для обычных файловых дисков
+    "${VIRSH[@]}" domblklist "$1" --details | awk '$1=="file" && $2=="disk" {print $3, $4}'
+}
+
+write_backup_xml() { # $1=vm $2=каталог $3=ts $4=full|incr $5=родительский чекпоинт
+    local vm=$1 dir=$2 t=$3 mode=$4 parent=$5 fname
+    { echo "<domainbackup mode='push'>"
+      [ "$mode" = incr ] && echo "  <incremental>$parent</incremental>"
+      echo "  <disks>"
+      while read -r dev _src; do
+          [ -n "$dev" ] || continue
+          if [ "$mode" = full ]; then fname="full-$dev.qcow2"; else fname="inc-$t-$dev.qcow2"; fi
+          echo "    <disk name='$dev' type='file'>"
+          echo "      <target file='$dir/$fname'/>"
+          echo "    </disk>"
+      done < <(disk_list "$vm")
+      echo "  </disks>"
+      echo "</domainbackup>"
+    } > "$TMP/backup.xml"
+}
+
+write_checkpoint_xml() { # $1=имя чекпоинта
+    printf '<domaincheckpoint>\n  <name>%s</name>\n  <description>vm-replication</description>\n</domaincheckpoint>\n' "$1" > "$TMP/cp.xml"
+}
+
+wait_backup() { # $1=vm — дождаться завершения push-задания
+    local i
+    for ((i = 0; i < BACKUP_TIMEOUT; i += 5)); do
+        if ! "${VIRSH[@]}" domjobinfo "$1" 2>/dev/null | grep -Eiq 'job type.*(backup|bounded)'; then
+            return 0
+        fi
+        sleep 5
+    done
+    return 1
+}
+
+finish_chain_dir() { # $1=vm $2=каталог — метаданные рядом с копией
+    "${VIRSH[@]}" dumpxml "$1" > "$2/domain.xml"
+    cp /usr/local/sbin/vm-restore "$2/vm-restore"
+}
+
+sync_vm() { # $1=vm; 0 = успех
+    [ -n "${REMOTE_TARGET:-}" ] || return 0
+    log "  rsync -> $REMOTE_TARGET/$1/"
+    rsync -aHS --delete --info=stats1 \
+        -e "ssh ${REMOTE_SSH_OPTS:-}" \
+        "$STORAGE_ROOT/$1/" "$REMOTE_TARGET/$1/"
+}
+
+prune_vm() { # $1=vm $2=чекпоинт, который оставить (может быть пустым)
+    local vm=$1 keep=$2 cp d
+    local dirs
+    dirs=$(ls -1dt "$STORAGE_ROOT/$vm"/*/ 2>/dev/null || true)
+    printf '%s\n' "$dirs" | tail -n +$((KEEP_CHAINS + 1)) | while read -r d; do
+        [ -n "$d" ] || continue
+        log "  удаляю старую цепочку $d"
+        rm -rf "${d%/}"
+    done
+    [ -n "$keep" ] || return 0
+    while read -r cp; do
+        [ -n "$cp" ] || continue
+        [ "$cp" = "$keep" ] && continue
+        if "${VIRSH[@]}" checkpoint-delete "$vm" "$cp" >/dev/null 2>&1; then
+            log "  удаляю чекпоинт $cp"
+        else
+            log "  не удалось удалить чекпоинт $cp (продолжаю)"
+        fi
+    done < <("${VIRSH[@]}" checkpoint-list "$vm" --name 2>/dev/null)
+}
+
+replicate_running() { # $1=vm
+    local vm=$1 t cps newest='' chain='' dir='' mode parent img
+    [ -n "$(disk_list "$vm")" ] || { log "  у ВМ нет файловых дисков — пропуск"; return 0; }
+
+    cps=$("${VIRSH[@]}" checkpoint-list "$vm" --name 2>/dev/null | grep -E '^c-[0-9]{8}-[0-9]{6}-' | sort || true)
+    if [ -n "$cps" ]; then
+        newest=$(printf '%s\n' "$cps" | tail -n1)
+        chain=${newest#c-}; chain=${chain:0:15}
+        dir="$STORAGE_ROOT/$vm/$chain"
+        if ! ls "$dir"/full-*.qcow2 >/dev/null 2>&1; then dir=; fi
+    fi
+
+    if [ -n "$dir" ]; then
+        local age incs
+        age=$(( ($(date +%s) - $(stat -c %Y "$(find "$dir" -maxdepth 1 -name 'full-*.qcow2' | head -n1)")) / 86400 ))
+        incs=$(find "$dir" -maxdepth 1 -name 'inc-*.qcow2' | wc -l)
+        if [ "$age" -lt "$FULL_EVERY_DAYS" ] && [ "$incs" -lt "$MAX_INCS" ]; then
+            mode=incr
+        else
+            mode=full
+        fi
+    else
+        mode=full
+    fi
+
+    t=$(ts)
+    if [ "$mode" = full ]; then
+        chain=$t
+        dir="$STORAGE_ROOT/$vm/$chain"
+        mkdir -p "$dir"
+        chown libvirt-qemu:libvirt-qemu "$dir"
+        log "  полная копия в $dir"
+        write_backup_xml "$vm" "$dir" "$t" full ""
+    else
+        log "  инкремент от $newest в $dir"
+        write_backup_xml "$vm" "$dir" "$t" incr "$newest"
+    fi
+    write_checkpoint_xml "c-$chain-$t"
+
+    "${VIRSH[@]}" backup-begin "$vm" --backupxml "$TMP/backup.xml" --checkpointxml "$TMP/cp.xml" >/dev/null \
+        || die "$vm: backup-begin не удался"
+    wait_backup "$vm" || die "$vm: backup не завершился за $BACKUP_TIMEOUT сек"
+
+    if [ "$QEMU_IMG_CHECK" != 0 ]; then
+        if [ "$mode" = incr ]; then
+            set -- "$dir"/inc-"$t"-*.qcow2
+        else
+            set -- "$dir"/full-*.qcow2
+        fi
+        for img in "$@"; do
+            qemu-img check -q -U "$img" || die "qemu-img check: $img"
+        done
+    fi
+    finish_chain_dir "$vm" "$dir"
+    if sync_vm "$vm"; then
+        prune_vm "$vm" "c-$chain-$t"
+    else
+        log "  rsync не удался — старые цепочки не удаляю, повтор в следующий запуск"
+    fi
+}
+
+replicate_offline() { # $1=vm — холодная копия (rsync) в cold-каталог
+    local vm=$1 t dir dev src
+    t=$(ts)
+    dir=$(find "$STORAGE_ROOT/$vm" -maxdepth 1 -name 'cold-*' -type d 2>/dev/null | sort -r | head -n1)
+    if [ -z "$dir" ]; then
+        dir="$STORAGE_ROOT/$vm/cold-$t"
+        mkdir -p "$dir"
+        log "  ВМ выключена — холодная копия в $dir"
+    else
+        log "  ВМ выключена — обновляю холодную копию в $dir"
+    fi
+    touch "$dir"
+    while read -r dev src; do
+        [ -n "$dev" ] || continue
+        rsync -aHS --sparse "$src" "$dir/full-$dev.qcow2"
+    done < <(disk_list "$vm")
+    finish_chain_dir "$vm" "$dir"
+    if sync_vm "$vm"; then
+        prune_vm "$vm" ""
+    else
+        log "  rsync не удался — старые цепочки не удаляю, повтор в следующий запуск"
+    fi
+}
+
+main() {
+    install -d -m 0755 "$STORAGE_ROOT"
+    chown libvirt-qemu:libvirt-qemu "$STORAGE_ROOT" 2>/dev/null || true
+    local vm state
+    for vm in $VMS; do
+        log "== $vm =="
+        if ! "${VIRSH[@]}" dominfo "$vm" >/dev/null 2>&1; then
+            log "  ВМ не найдена — пропуск"
+            continue
+        fi
+        state=$("${VIRSH[@]}" domstate "$vm" 2>/dev/null || echo unknown)
+        case "$state" in
+            running) replicate_running "$vm" ;;
+            "shut off" | paused) replicate_offline "$vm" ;;
+            *) log "  состояние '$state' — пропуск" ;;
+        esac
+    done
+    log "готово"
+}
+
+main
