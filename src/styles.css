@@ -46,3 +46,9 @@
 .pf-v6-c-form__helper-text code {
     word-break: break-all;
 }
+
+/* horizontal tab strip shown when the app is embedded in the Cockpit shell */
+.app-subnav {
+    border-bottom: 1px solid var(--pf-t--global--border--color--default, #e0e0e0);
+    background: var(--pf-t--global--background--color--primary--default, transparent);
+}

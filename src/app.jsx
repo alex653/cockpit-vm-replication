@@ -145,6 +145,26 @@ export function App() {
                 isManagedSidebar
                 skipToContent={<SkipToContent>Skip to content</SkipToContent>}
             >
+                {!standalone && (
+                    /* embedded in the Cockpit shell: it owns the sidebar, so the
+                       app keeps its own tabs as a horizontal sub-navigation */
+                    <PageSection padding={{ default: "noPadding" }} className="app-subnav">
+                        <Nav aria-label="Sections" variant="horizontal-subnav">
+                            <NavList>
+                                {TABS.map(t => (
+                                    <NavItem
+                                        key={t.id}
+                                        isActive={tab === t.id}
+                                        onClick={e => { e.preventDefault(); switchTab(e, t.id); }}
+                                        href={`#/${t.id}`}
+                                    >
+                                        {t.title}
+                                    </NavItem>
+                                ))}
+                            </NavList>
+                        </Nav>
+                    </PageSection>
+                )}
                 <AlertGroup isToast isLiveRegion>
                     {loadError && (
                         <Alert
