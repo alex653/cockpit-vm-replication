@@ -27,7 +27,7 @@ A systemd timer runs the job hourly. The Cockpit UI gives you:
 |---|---|
 | **Overview** | timer state and next run, storage usage, per-VM health (state, active chain, increment count, size, last backup, last result), run-now for all VMs or one VM |
 | **VMs & Chains** | every stored chain with full/increment sizes and times; delete a chain; jump to restore |
-| **Configuration** | edit `/etc/vm-replication/vms.conf` (VM list, remote target, ssh options, storage root, rotation policy) — comments in the file are preserved; a **Check access** button probes the entered remote target before saving: SSH key auth, rsync availability on the remote host and target path writability, with hints for common failures (unknown host key, rejected key, wrong port); a **dedicated SSH key** can be generated, regenerated, deleted and copied right in the UI — while it exists it is used automatically for mirroring (`-i … -o IdentitiesOnly=yes`) |
+| **Configuration** | edit `/etc/vm-replication/vms.conf` (VM list, remote target, ssh options, storage root, rotation policy) — comments in the file are preserved; a **Check access** button probes the entered remote target before saving: SSH key auth, rsync availability on the remote host and target path writability; when the remote host key is not yet trusted, an **Accept host key** button shows its fingerprints and adds it to `known_hosts` in one click; a **dedicated SSH key** can be generated, regenerated, deleted and copied right in the UI — while it exists it is used automatically for mirroring (`-i … -o IdentitiesOnly=yes`) |
 | **Restore** | flatten a chain into one qcow2 on this host, with size/free-space checks, plus copy-ready instructions for restoring on the remote side |
 | **Journal** | live `journalctl -t vm-replication` view with filter and auto-refresh |
 
@@ -85,8 +85,9 @@ Cockpit service a minute if it was running during install).
    dedicated key right on the Configuration tab (**Generate key** → **Copy** →
    append to `~/.ssh/authorized_keys` of the target user on the remote host —
    it is picked up automatically), or use root's default key:
-   `sudo ssh-copy-id -p 2222 user@backup-host` (accept the remote host key
-   once if the check reports it as unknown).
+   `sudo ssh-copy-id -p 2222 user@backup-host`. If **Check access** reports
+   `Host key verification failed`, press **Accept host key** to review the
+   fingerprints and trust the server in one click — no terminal needed.
 3. Press **Run now** and watch the Journal tab.
 
 ## How the replication works
