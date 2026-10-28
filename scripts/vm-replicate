@@ -286,7 +286,9 @@ run_entry() { # $1=путь к vms.d/<vm>.conf
     fi
     log "== $VM =="
     if ! "${VIRSH[@]}" dominfo "$VM" >/dev/null 2>&1; then
-        log "  ВМ не найдена — пропуск"; return 0
+        log "  ВМ не найдена — пропуск"
+        log "  готово"
+        return 0
     fi
     install -d -m 0755 "$STORAGE_ROOT"
     chown libvirt-qemu:libvirt-qemu "$STORAGE_ROOT" 2>/dev/null || true
@@ -297,6 +299,8 @@ run_entry() { # $1=путь к vms.d/<vm>.conf
         "shut off" | paused) replicate_offline "$VM" ;;
         *) log "  состояние '$state' — пропуск" ;;
     esac
+    # helper считает прогон ВМ незавершённым, пока не увидит эту строку
+    log "  готово"
 }
 
 main() {
