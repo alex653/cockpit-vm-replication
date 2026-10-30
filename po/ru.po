@@ -826,3 +826,45 @@ msgstr "Фильтр…"
 #: src/views/logs.jsx:96
 msgid "— no entries —"
 msgstr "— записей нет —"
+
+# ---------------------- per-VM activity and run mode (2.1) ---
+#: src/views/overview.jsx
+msgid "Active"
+msgstr "Активность"
+
+#: src/views/overview.jsx
+msgid "Copy type for {name}"
+msgstr "Тип копии для {name}"
+
+#: src/views/overview.jsx
+msgid "Toggle replication for {name}"
+msgstr "Включить или выключить репликацию {name}"
+
+#: src/views/overview.jsx
+msgid "Replication active"
+msgstr "Репликация включена"
+
+#: src/views/overview.jsx
+msgid "When off, this VM is skipped by both scheduled and manual runs."
+msgstr "Если выключено, ВМ пропускается и при запуске по расписанию, и при ручном запуске."
+
+#: src/views/overview.jsx
+msgid "Run mode"
+msgstr "Режим запуска"
+
+#: src/views/overview.jsx
+msgid "By schedule (hourly timer)"
+msgstr "По расписанию (почасовой таймер)"
+
+#: src/views/overview.jsx
+msgid "Manual only — run with the button, as a full copy or an increment"
+msgstr "Только вручную — запуск кнопкой: полная копия или инкремент"
+
+#: src/views/overview.jsx
+msgid "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type."
+msgstr "ВМ в режиме «вручную» пропускаются почасовым таймером; тип копии выбирается кнопкой запуска или её меню."
+
+#: src/views/overview.jsx
+msgctxt "mode"
+msgid "manual"
+msgstr "вручную"

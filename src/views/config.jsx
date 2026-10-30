@@ -3,13 +3,13 @@ import {
     Alert, Button, Card, CardBody, CardHeader, CardTitle, Checkbox,
     Content, ContentVariants, Flex, FlexItem, Form, FormGroup, Grid,
     GridItem, HelperText, HelperTextItem, Label, Modal, ModalBody,
-    ModalFooter, ModalHeader, Spinner, Switch, TextInput,
+    ModalFooter, ModalHeader, Radio, Spinner, Switch, TextInput,
 } from "@patternfly/react-core";
 import { CheckCircleIcon, TimesCircleIcon } from "@patternfly/react-icons";
 import { copyText, errorMessage, helper } from "../api.js";
 import { t, tc } from "../i18n.js";
 import { useStatus } from "../app.jsx";
-import { runStatus, vmStateText } from "./overview.jsx";
+import { runStatus, vmStateText, ActivitySwitch, runVM, RunMenu } from "./overview.jsx";
 
 function toInt(v) {
     const n = parseInt(v, 10);
@@ -192,6 +192,8 @@ function CheckBlock({ vm, target, opts }) {
 function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSaved }) {
     const [chosenVm, setChosenVm] = useState(vm || "");
     const [form, setForm] = useState(() => ({
+        ACTIVE: String(initial?.ACTIVE ?? "1") !== "0",
+        MODE: initial?.MODE === "manual" ? "manual" : "schedule",
         REMOTE_TARGET: initial?.REMOTE_TARGET || "",
         REMOTE_SSH_OPTS: initial?.REMOTE_SSH_OPTS ?? (defaults?.REMOTE_SSH_OPTS || "-o BatchMode=yes -o ConnectTimeout=30"),
         STORAGE_ROOT: initial?.STORAGE_ROOT || defaults?.STORAGE_ROOT || "/mnt/dd/replication",
@@ -219,6 +221,8 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
         try {
             await helper("entry-save", [], JSON.stringify({
                 vm: chosenVm,
+                active: form.ACTIVE ? 1 : 0,
+                mode: form.MODE,
                 remote_target: form.REMOTE_TARGET.trim(),
                 ssh_opts: form.REMOTE_SSH_OPTS,
                 storage_root: form.STORAGE_ROOT.trim(),
@@ -259,6 +263,29 @@ function EntryForm({ vm, isNew, initial, defaults, unconfigured, onCancel, onSav
 
                 {showForm && (
                     <>
+                        <FormGroup fieldId="ef-active">
+                            <Switch id="ef-active"
+                                label={t("Replication active")}
+                                isChecked={form.ACTIVE}
+                                onChange={(_e, v) => set({ ACTIVE: v })}
+                                hasCheckIcon />
+                            <HelperText><HelperTextItem>
+                                {t("When off, this VM is skipped by both scheduled and manual runs.")}
+                            </HelperTextItem></HelperText>
+                        </FormGroup>
+                        <FormGroup label={t("Run mode")} fieldId="ef-mode" role="radiogroup">
+                            <Radio id="ef-mode-schedule" name="ef-mode"
+                                label={t("By schedule (hourly timer)")}
+                                isChecked={form.MODE === "schedule"}
+                                onChange={() => set({ MODE: "schedule" })} />
+                            <Radio id="ef-mode-manual" name="ef-mode"
+                                label={t("Manual only — run with the button, as a full copy or an increment")}
+                                isChecked={form.MODE === "manual"}
+                                onChange={() => set({ MODE: "manual" })} />
+                            <HelperText><HelperTextItem>
+                                {t("Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.")}
+                            </HelperTextItem></HelperText>
+                        </FormGroup>
                         <FormGroup label={t("Remote target")} fieldId="ef-remote"
                             helperText={t("Empty = keep local copies only. Port goes into SSH options (-p <port>).")}>
                             <TextInput id={`ef-remote-${chosenVm}`} value={form.REMOTE_TARGET}
@@ -436,13 +463,13 @@ export function ConfigView() {
                     <table className="vm-table">
                         <thead>
                             <tr>
-                                <th>{t("VM")}</th><th>{t("State")}</th><th>{t("Remote")}</th><th>{t("Key")}</th>
+                                <th>{t("VM")}</th><th>{t("State")}</th><th>{t("Active")}</th><th>{t("Remote")}</th><th>{t("Key")}</th>
                                 <th>{t("Next run")}</th><th>{t("Last result")}</th><th></th>
                             </tr>
                         </thead>
                         <tbody>
                             {editing === "new" && (
-                                <tr className="edit-row"><td colSpan={7}>
+                                <tr className="edit-row"><td colSpan={8}>
                                     <EntryForm vm="" isNew unconfigured={unconfigured}
                                         defaults={status.defaults}
                                         onCancel={() => setEditing(null)}
@@ -452,8 +479,22 @@ export function ConfigView() {
                             {entries.map(e => (
                                 <React.Fragment key={e.vm}>
                                     <tr>
-                                        <td><strong>{e.vm}</strong>{!e.in_config && <Label color="orange" style={{ marginLeft: "0.5rem" }}>{t("no config")}</Label>}</td>
+                                        <td>
+                                            <strong>{e.vm}</strong>
+                                            {!e.in_config && <Label color="orange" style={{ marginLeft: "0.5rem" }}>{t("no config")}</Label>}
+                                            {e.in_config && e.config.MODE === "manual"
+                                                && <Label color="blue" style={{ marginLeft: "0.5rem" }}>{tc("mode", "manual")}</Label>}
+                                        </td>
                                         <td>{vmStateText(e.state)}</td>
+                                        <td>
+                                            <ActivitySwitch vm={e.vm}
+                                                active={e.config.ACTIVE !== "0"}
+                                                isDisabled={!!editing}
+                                                onChange={on =>
+                                                    helper("entry-save", [], JSON.stringify({ vm: e.vm, active: on ? 1 : 0 }))
+                                                        .then(refresh)
+                                                        .catch(err => setActionError(errorMessage(err)))} />
+                                        </td>
                                         <td>{e.config.REMOTE_TARGET
                                             ? <span title={e.config.REMOTE_TARGET}>{e.config.REMOTE_TARGET.split(":")[0]}</span>
                                             : <Label color="grey">{t("local only")}</Label>}</td>
@@ -480,7 +521,7 @@ export function ConfigView() {
                                         </td>
                                     </tr>
                                     {editing === e.vm && (
-                                        <tr className="edit-row"><td colSpan={7}>
+                                        <tr className="edit-row"><td colSpan={8}>
                                             <EntryForm vm={e.vm} isNew={false} initial={e.config}
                                                 defaults={status.defaults}
                                                 onCancel={() => setEditing(null)}

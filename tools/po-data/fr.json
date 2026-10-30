@@ -16,10 +16,22 @@
   "Install them with": "Installez-les avec",
   "from this project.": "à partir de ce projet.",
   "unknown error": "erreur inconnue",
-  "{n} sec ago": ["il y a {n} s", "il y a {n} s"],
-  "{n} min ago": ["il y a {n} min", "il y a {n} min"],
-  "{n} h ago": ["il y a {n} h", "il y a {n} h"],
-  "{n} d ago": ["il y a {n} j", "il y a {n} j"],
+  "{n} sec ago": [
+    "il y a {n} s",
+    "il y a {n} s"
+  ],
+  "{n} min ago": [
+    "il y a {n} min",
+    "il y a {n} min"
+  ],
+  "{n} h ago": [
+    "il y a {n} h",
+    "il y a {n} h"
+  ],
+  "{n} d ago": [
+    "il y a {n} j",
+    "il y a {n} j"
+  ],
   "vm-state\u0004running": "en marche",
   "vm-state\u0004shut off": "éteinte",
   "vm-state\u0004missing": "absente",
@@ -30,7 +42,10 @@
   "Last replication of {name} failed ({time})": "La dernière réplication de {name} a échoué ({time})",
   "Hourly replication timer is not active": "Le minuteur de réplication horaire n'est pas actif",
   "Copies are only made on manual runs. Start the timer below or with": "Les copies ne sont faites que lors de lancements manuels. Démarrez le minuteur ci-dessous ou avec",
-  "{n} configuration has no remote target — its copies stay on this host": ["{n} configuration n'a pas de cible distante — ses copies restent sur cet hôte", "{n} configurations n'ont pas de cible distante — leurs copies restent sur cet hôte"],
+  "{n} configuration has no remote target — its copies stay on this host": [
+    "{n} configuration n'a pas de cible distante — ses copies restent sur cet hôte",
+    "{n} configurations n'ont pas de cible distante — leurs copies restent sur cet hôte"
+  ],
   "set a Remote target on the Configuration tab to mirror over rsync/ssh.": "définissez une cible distante dans l'onglet Configuration pour la mise en miroir via rsync/ssh.",
   "Replication job": "Tâche de réplication",
   "Hourly timer": "Minuteur horaire",
@@ -187,9 +202,22 @@
   "Flatten chain into:": "Aplatir la chaîne vers :",
   "Auto-refresh": "Actualisation auto",
   "Number of lines": "Nombre de lignes",
-  "{n} line": ["{n} ligne", "{n} lignes"],
+  "{n} line": [
+    "{n} ligne",
+    "{n} lignes"
+  ],
   "Refresh": "Actualiser",
   "vm-replication journal": "journal vm-replication",
   "Filter…": "Filtrer…",
-  "— no entries —": "— aucune entrée —"
+  "— no entries —": "— aucune entrée —",
+  "Active": "Active",
+  "Copy type for {name}": "Type de copie pour {name}",
+  "Toggle replication for {name}": "Activer ou désactiver la réplication de {name}",
+  "Replication active": "Réplication active",
+  "When off, this VM is skipped by both scheduled and manual runs.": "Désactivée, cette VM est ignorée par les lancements planifiés comme manuels.",
+  "Run mode": "Mode de lancement",
+  "By schedule (hourly timer)": "Selon le planificateur (minuteur horaire)",
+  "Manual only — run with the button, as a full copy or an increment": "Manuel uniquement — lancement par bouton, en copie complète ou incrément",
+  "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.": "Les VM en mode manuel sont ignorées par le minuteur horaire ; choisissez le type de copie via le bouton ou son menu.",
+  "mode\u0004manual": "manuel"
 }

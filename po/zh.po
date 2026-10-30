@@ -802,3 +802,44 @@ msgstr "过滤…"
 msgid "— no entries —"
 msgstr "— 暂无记录 —"
 
+#: src/00-generated.po
+msgid "Active"
+msgstr "启用"
+
+#: src/00-generated.po
+msgid "Copy type for {name}"
+msgstr "{name} 的副本类型"
+
+#: src/00-generated.po
+msgid "Toggle replication for {name}"
+msgstr "启用或停用 {name} 的复制"
+
+#: src/00-generated.po
+msgid "Replication active"
+msgstr "启用复制"
+
+#: src/00-generated.po
+msgid "When off, this VM is skipped by both scheduled and manual runs."
+msgstr "关闭后，计划任务和手动运行都会跳过此虚拟机。"
+
+#: src/00-generated.po
+msgid "Run mode"
+msgstr "运行方式"
+
+#: src/00-generated.po
+msgid "By schedule (hourly timer)"
+msgstr "按计划（每小时定时器）"
+
+#: src/00-generated.po
+msgid "Manual only — run with the button, as a full copy or an increment"
+msgstr "仅手动 — 通过按钮运行，选择完整副本或增量"
+
+#: src/00-generated.po
+msgid "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type."
+msgstr "每小时定时器会跳过“仅手动”模式的虚拟机；使用运行按钮或其菜单选择副本类型。"
+
+#: src/00-generated.po
+msgctxt "mode"
+msgid "manual"
+msgstr "手动"
+

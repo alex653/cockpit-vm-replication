@@ -814,3 +814,44 @@ msgstr "Filtr…"
 msgid "— no entries —"
 msgstr "— brak wpisów —"
 
+#: src/00-generated.po
+msgid "Active"
+msgstr "Aktywna"
+
+#: src/00-generated.po
+msgid "Copy type for {name}"
+msgstr "Rodzaj kopii dla {name}"
+
+#: src/00-generated.po
+msgid "Toggle replication for {name}"
+msgstr "Włącz lub wyłącz replikację {name}"
+
+#: src/00-generated.po
+msgid "Replication active"
+msgstr "Replikacja aktywna"
+
+#: src/00-generated.po
+msgid "When off, this VM is skipped by both scheduled and manual runs."
+msgstr "Gdy wyłączone, maszyna jest pomijana zarówno przy uruchomieniach planowych, jak i ręcznych."
+
+#: src/00-generated.po
+msgid "Run mode"
+msgstr "Tryb uruchamiania"
+
+#: src/00-generated.po
+msgid "By schedule (hourly timer)"
+msgstr "Wg harmonogramu (godzinowy timer)"
+
+#: src/00-generated.po
+msgid "Manual only — run with the button, as a full copy or an increment"
+msgstr "Tylko ręcznie — uruchamianie przyciskiem, kopia pełna lub przyrost"
+
+#: src/00-generated.po
+msgid "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type."
+msgstr "Maszyny w trybie ręcznym pomija godzinowy timer; rodzaj kopii wybierz przyciskiem lub jego menu."
+
+#: src/00-generated.po
+msgctxt "mode"
+msgid "manual"
+msgstr "ręczny"
+

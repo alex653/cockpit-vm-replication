@@ -8,7 +8,7 @@ import { TrashIcon } from "@patternfly/react-icons";
 import { errorMessage, fmtBytes, fmtDateTime, helper, timeAgo } from "../api.js";
 import { t, tc } from "../i18n.js";
 import { useStatus } from "../app.jsx";
-import { vmStateText } from "./overview.jsx";
+import { vmStateText, RunMenu, runVM } from "./overview.jsx";
 
 export function Chains() {
     const { status, refresh, setActionError, goto } = useStatus();
@@ -61,15 +61,10 @@ export function Chains() {
                                 expandable={{ isExpandable: true, isExpanded: isOpen }}
                                 actions={{
                                     actions: (
-                                        <Button
-                                            variant="secondary" size="sm"
+                                        <RunMenu
+                                            vm={vm.name} label={t("Replicate now")}
                                             isDisabled={status.busy || vm.state !== "running"}
-                                            onClick={() => helper("run", ["--vm", vm.name])
-                                                .then(refresh)
-                                                .catch(e => setActionError(errorMessage(e)))}
-                                        >
-                                            {t("Replicate now")}
-                                        </Button>
+                                            onRun={kind => runVM(vm.name, kind, { refresh, setActionError })} />
                                     ),
                                 }}
                             >

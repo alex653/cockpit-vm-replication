@@ -1,7 +1,7 @@
 {
   "name": "cockpit-vm-replication",
   "description": "Cockpit application for incremental replication of libvirt VMs (virsh backup-begin + checkpoints)",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "VM Replication contributors",
   "license": "MIT",
   "repository": {

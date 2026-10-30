@@ -15,8 +15,12 @@
 #            + domain.xml + vm-restore; каталог зеркалится на REMOTE_TARGET
 #            (rsync --delete) с ssh-ключом SSH_KEY, если задан.
 #
-# Запуск:  vm-replicate [ИМЯ_ВМ ...]   — без аргументов все конфигурации,
-#                                        с аргументами — только перечисленные ВМ.
+# Запуск:  vm-replicate [ИМЯ_ВМ ...] [--full|--incremental]
+#          без аргументов — все конфигурации (запуск по расписанию пропускает
+#          ВМ с ACTIVE=0 и MODE=manual; ручной запуск с VM_REPLICATE_MANUAL=1
+#          или с явным именем ВМ выполняет их);
+#          --full / --incremental — принудительный тип копии (только вместе
+#          с именем ВМ).
 #
 # Восстановление на приёмной стороне:  vm-restore <каталог-цепочки> [файл-результата]
 set -euo pipefail
@@ -41,6 +45,9 @@ MAX_INCS=48
 KEEP_CHAINS=2
 BACKUP_TIMEOUT=14400
 QEMU_IMG_CHECK=1
+ACTIVE=1
+MODE=schedule
+FORCE=""
 REMOTE_TARGET=""
 REMOTE_SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=30"
 SSH_KEY=""
@@ -194,13 +201,18 @@ replicate_running() { # $1=vm
         local age incs
         age=$(( ($(date +%s) - $(stat -c %Y "$(find "$dir" -maxdepth 1 -name 'full-*.qcow2' | head -n1)")) / 86400 ))
         incs=$(find "$dir" -maxdepth 1 -name 'inc-*.qcow2' | wc -l)
-        if [ "$age" -lt "$FULL_EVERY_DAYS" ] && [ "$incs" -lt "$MAX_INCS" ]; then
+        if [ "$FORCE" = "--full" ]; then
+            mode=full
+        elif [ "$FORCE" = "--incremental" ]; then
+            mode=incr
+        elif [ "$age" -lt "$FULL_EVERY_DAYS" ] && [ "$incs" -lt "$MAX_INCS" ]; then
             mode=incr
         else
             mode=full
         fi
     else
         mode=full
+        [ "$FORCE" = "--incremental" ] && log "  нет цепочки для инкремента — делаю полную копию"
     fi
 
     t=$(ts)
@@ -273,6 +285,7 @@ run_entry() { # $1=путь к vms.d/<vm>.conf
     KEEP_CHAINS=${D_KEEP_CHAINS:-2}
     BACKUP_TIMEOUT=${D_BACKUP_TIMEOUT:-14400}
     QEMU_IMG_CHECK=${D_QEMU_IMG_CHECK:-1}
+    ACTIVE=1; MODE=schedule
     REMOTE_TARGET=""; REMOTE_SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=30"; SSH_KEY=""
     VM=""
     # shellcheck disable=SC1090
@@ -285,6 +298,20 @@ run_entry() { # $1=путь к vms.d/<vm>.conf
         [ "$want" = 1 ] || return 0
     fi
     log "== $VM =="
+    # ACTIVE=0 выключает репликацию ВМ полностью
+    if [ "$ACTIVE" != "1" ]; then
+        log "  репликация выключена — пропуск"
+        log "  готово"
+        return 0
+    fi
+    # MODE=manual — только по явной кнопке: пропуск при запуске по расписанию
+    # (запуск по расписанию = без аргументов и без VM_REPLICATE_MANUAL=1)
+    if [ "$MODE" != "schedule" ] && [ ${#ONLY[@]} -eq 0 ] \
+       && [ "${VM_REPLICATE_MANUAL:-0}" != "1" ]; then
+        log "  режим «вручную» — пропуск по расписанию"
+        log "  готово"
+        return 0
+    fi
     if ! "${VIRSH[@]}" dominfo "$VM" >/dev/null 2>&1; then
         log "  ВМ не найдена — пропуск"
         log "  готово"
@@ -304,7 +331,18 @@ run_entry() { # $1=путь к vms.d/<vm>.conf
 }
 
 main() {
-    ONLY=("$@")
+    ONLY=()
+    FORCE=""
+    local a
+    for a in "$@"; do
+        case "$a" in
+            --full | --incremental) FORCE=$a ;;
+            *) ONLY+=("$a") ;;
+        esac
+    done
+    if [ -n "$FORCE" ] && [ ${#ONLY[@]} -ne 1 ]; then
+        die "$FORCE имеет смысл только с одним именем ВМ"
+    fi
     migrate_legacy
     # снимок глобальных дефолтов из defaults.conf для сброса на каждый профиль
     D_STORAGE_ROOT=$STORAGE_ROOT; D_FULL_EVERY_DAYS=$FULL_EVERY_DAYS

@@ -16,10 +16,18 @@
   "Install them with": "インストールしてください：",
   "from this project.": "（このプロジェクト内で）。",
   "unknown error": "不明なエラー",
-  "{n} sec ago": ["{n} 秒前"],
-  "{n} min ago": ["{n} 分前"],
-  "{n} h ago": ["{n} 時間前"],
-  "{n} d ago": ["{n} 日前"],
+  "{n} sec ago": [
+    "{n} 秒前"
+  ],
+  "{n} min ago": [
+    "{n} 分前"
+  ],
+  "{n} h ago": [
+    "{n} 時間前"
+  ],
+  "{n} d ago": [
+    "{n} 日前"
+  ],
   "vm-state\u0004running": "実行中",
   "vm-state\u0004shut off": "停止中",
   "vm-state\u0004missing": "見つかりません",
@@ -30,7 +38,9 @@
   "Last replication of {name} failed ({time})": "{name} の前回のレプリケーションが失敗しました（{time}）",
   "Hourly replication timer is not active": "1 時間ごとのレプリケーションタイマーが有効ではありません",
   "Copies are only made on manual runs. Start the timer below or with": "コピーは手動実行時のみ作成されます。下でタイマーを起動するか、次のコマンドを実行してください：",
-  "{n} configuration has no remote target — its copies stay on this host": ["{n} 件の設定にリモートターゲットがなく — コピーはこのホストに保存されます"],
+  "{n} configuration has no remote target — its copies stay on this host": [
+    "{n} 件の設定にリモートターゲットがなく — コピーはこのホストに保存されます"
+  ],
   "set a Remote target on the Configuration tab to mirror over rsync/ssh.": "「設定」タブでリモートターゲットを設定すると rsync/ssh でミラーリングされます。",
   "Replication job": "レプリケーションジョブ",
   "Hourly timer": "1 時間ごとのタイマー",
@@ -187,9 +197,21 @@
   "Flatten chain into:": "チェーンの平坦化先：",
   "Auto-refresh": "自動更新",
   "Number of lines": "行数",
-  "{n} line": ["{n} 行"],
+  "{n} line": [
+    "{n} 行"
+  ],
   "Refresh": "更新",
   "vm-replication journal": "vm-replication ジャーナル",
   "Filter…": "フィルター…",
-  "— no entries —": "— エントリなし —"
+  "— no entries —": "— エントリなし —",
+  "Active": "有効",
+  "Copy type for {name}": "{name} のコピー種類",
+  "Toggle replication for {name}": "{name} のレプリケーション切り替え",
+  "Replication active": "レプリケーション有効",
+  "When off, this VM is skipped by both scheduled and manual runs.": "オフにすると、この VM はスケジュール実行と手動実行のどちらでもスキップされます。",
+  "Run mode": "実行モード",
+  "By schedule (hourly timer)": "スケジュールどおり（1 時間ごとのタイマー）",
+  "Manual only — run with the button, as a full copy or an increment": "手動のみ — ボタンで実行（フルコピーまたは増分）",
+  "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.": "手動モードの VM は 1 時間ごとのタイマーではスキップされます。コピー種類は実行ボタンまたはそのメニューで選択してください。",
+  "mode\u0004manual": "手動"
 }

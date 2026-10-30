@@ -802,3 +802,44 @@ msgstr "フィルター…"
 msgid "— no entries —"
 msgstr "— エントリなし —"
 
+#: src/00-generated.po
+msgid "Active"
+msgstr "有効"
+
+#: src/00-generated.po
+msgid "Copy type for {name}"
+msgstr "{name} のコピー種類"
+
+#: src/00-generated.po
+msgid "Toggle replication for {name}"
+msgstr "{name} のレプリケーション切り替え"
+
+#: src/00-generated.po
+msgid "Replication active"
+msgstr "レプリケーション有効"
+
+#: src/00-generated.po
+msgid "When off, this VM is skipped by both scheduled and manual runs."
+msgstr "オフにすると、この VM はスケジュール実行と手動実行のどちらでもスキップされます。"
+
+#: src/00-generated.po
+msgid "Run mode"
+msgstr "実行モード"
+
+#: src/00-generated.po
+msgid "By schedule (hourly timer)"
+msgstr "スケジュールどおり（1 時間ごとのタイマー）"
+
+#: src/00-generated.po
+msgid "Manual only — run with the button, as a full copy or an increment"
+msgstr "手動のみ — ボタンで実行（フルコピーまたは増分）"
+
+#: src/00-generated.po
+msgid "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type."
+msgstr "手動モードの VM は 1 時間ごとのタイマーではスキップされます。コピー種類は実行ボタンまたはそのメニューで選択してください。"
+
+#: src/00-generated.po
+msgctxt "mode"
+msgid "manual"
+msgstr "手動"
+

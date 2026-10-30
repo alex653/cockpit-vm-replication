@@ -29,7 +29,7 @@ rotation policy and SSH key. The Cockpit UI gives you:
 |---|---|
 | **Overview** | timer state and next run, storage usage, per-VM health (state, active chain, increment count, size, last backup, last result), run-now for all VMs or one VM |
 | **VMs & Chains** | every stored chain with full/increment sizes and times; delete a chain; jump to restore |
-| **Configuration** | a table of per-VM replication configurations with **Add / Edit / Delete**; each row expands inline into a form for that VM — remote target, ssh options, storage root, rotation policy, and a **dedicated SSH key** (generate / copy / regenerate / delete) used automatically for that configuration; a **Check access** button probes the entered target before saving (SSH key auth, remote rsync, path writability), and **Accept host key** trusts an unknown server in one click. A separate **Global defaults** card edits `LIBVIRT_URI` and the seed values for new configurations |
+| **Configuration** | a table of per-VM replication configurations with **Add / Edit / Delete**; each row expands inline into a form for that VM — an **activity toggle** (`ACTIVE`, a disabled VM is skipped by scheduled *and* manual runs), the **run mode** (by the hourly schedule, or manual-only), remote target, ssh options, storage root, rotation policy, and a **dedicated SSH key** (generate / copy / regenerate / delete) used automatically for that configuration; a **Check access** button probes the entered target before saving (SSH key auth, remote rsync, path writability), and **Accept host key** trusts an unknown server in one click. A separate **Global defaults** card edits `LIBVIRT_URI` and the seed values for new configurations |
 | **Restore** | flatten a chain into one qcow2 on this host, with size/free-space checks, plus copy-ready instructions for restoring on the remote side |
 | **Journal** | live `journalctl -t vm-replication` view with filter and auto-refresh |
 
@@ -94,7 +94,12 @@ Cockpit service a minute if it was running during install).
    `Host key verification failed`, press **Accept host key** to review the
    fingerprints and trust the server in one click — no terminal needed.
 3. Press **Run now** (all configurations) or the per-row **Run** and watch the
-   Journal tab.
+   Journal tab. The small ⋮ menu next to a per-VM **Run** / **Replicate now**
+   button forces the copy type: a **full copy** or an **increment** — otherwise
+   the usual policy (`FULL_EVERY_DAYS` / `MAX_INCS`) decides. A VM whose run
+   mode is **manual only** is skipped by the hourly timer and replicates only
+   when you press the button; the **Active** toggle in both tables turns a VM's
+   replication on/off without deleting its configuration.
 
 ## How the replication works
 

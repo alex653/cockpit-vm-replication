@@ -57,7 +57,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 CONFIG_DIR = Path("/etc/vm-replication")
 DEFAULTS_PATH = CONFIG_DIR / "defaults.conf"
@@ -91,7 +91,12 @@ ENTRY_KEYS = {
     "KEEP_CHAINS": ("int", (1, 100)),
     "BACKUP_TIMEOUT": ("int", (60, 604800)),
     "QEMU_IMG_CHECK": ("int", (0, 1)),
+    "ACTIVE": ("int", (0, 1)),
+    "MODE": ("str", lambda v: v in ("schedule", "manual")),
 }
+
+# human-readable hint per key for validation errors (keys with custom validators)
+VALIDATOR_HINTS = {"MODE": "expected schedule or manual"}
 # keys defaults.conf may hold (global + seed values for new profiles)
 DEFAULTS_KEYS = {
     "LIBVIRT_URI": ("str", None),
@@ -104,11 +109,11 @@ DEFAULTS_KEYS = {
 }
 
 INT_DEFAULTS = {"FULL_EVERY_DAYS": 7, "MAX_INCS": 48, "KEEP_CHAINS": 2,
-                "BACKUP_TIMEOUT": 14400, "QEMU_IMG_CHECK": 1}
+                "BACKUP_TIMEOUT": 14400, "QEMU_IMG_CHECK": 1, "ACTIVE": 1}
 STR_DEFAULTS = {"LIBVIRT_URI": "qemu:///system", "STORAGE_ROOT":
                 "/var/lib/libvirt/replication", "REMOTE_TARGET": "",
                 "REMOTE_SSH_OPTS": "-o BatchMode=yes -o ConnectTimeout=30",
-                "SSH_KEY": ""}
+                "SSH_KEY": "", "MODE": "schedule"}
 
 
 def fail(msg):
@@ -225,7 +230,7 @@ def validate_value(key, raw, schema):
         fail(f"{key}: newlines are not allowed")
     validator = schema[key][1]
     if validator and not validator(v):
-        fail(f"{key}: invalid value {v!r} (expected user@host:/path)")
+        fail(f"{key}: invalid value {v!r} ({VALIDATOR_HINTS.get(key, 'expected user@host:/path')})")
     return v
 
 
@@ -537,21 +542,30 @@ def cmd_entry_save(payload):
                  "ssh_key": "SSH_KEY", "storage_root": "STORAGE_ROOT",
                  "full_every_days": "FULL_EVERY_DAYS", "max_incs": "MAX_INCS",
                  "keep_chains": "KEEP_CHAINS", "backup_timeout": "BACKUP_TIMEOUT",
-                 "qemu_img_check": "QEMU_IMG_CHECK"}
+                 "qemu_img_check": "QEMU_IMG_CHECK",
+                 "active": "ACTIVE", "mode": "MODE"}
     values = {"VM": vm}
     for jkey, ckey in field_map.items():
         if jkey in payload:
             values[ckey] = validate_value(ckey, payload[jkey], ENTRY_KEYS)
+    # partial saves (e.g. only the activity toggle from the table) must keep
+    # the rest of the existing profile instead of falling back to defaults
+    existing = parse_kv(entry_path(vm)) if entry_path(vm).is_file() else {}
     # ensure a key path for this profile (file may not exist yet — that's fine)
     if not values.get("SSH_KEY"):
-        values["SSH_KEY"] = str(key_path(vm))
+        values["SSH_KEY"] = existing.get("SSH_KEY") or str(key_path(vm))
     defaults = read_defaults()
     for k in ("STORAGE_ROOT", "FULL_EVERY_DAYS", "MAX_INCS", "KEEP_CHAINS",
               "BACKUP_TIMEOUT", "QEMU_IMG_CHECK"):
-        values.setdefault(k, get_val(defaults, k))
-    values.setdefault("REMOTE_TARGET", "")
-    values.setdefault("REMOTE_SSH_OPTS", get_val(defaults, "REMOTE_SSH_OPTS")
-                      if "REMOTE_SSH_OPTS" in defaults else STR_DEFAULTS["REMOTE_SSH_OPTS"])
+        values.setdefault(k, existing.get(k, get_val(defaults, k)))
+    values.setdefault("REMOTE_TARGET", existing.get("REMOTE_TARGET", ""))
+    values.setdefault("REMOTE_SSH_OPTS",
+                      existing.get("REMOTE_SSH_OPTS",
+                                   get_val(defaults, "REMOTE_SSH_OPTS")
+                                   if "REMOTE_SSH_OPTS" in defaults
+                                   else STR_DEFAULTS["REMOTE_SSH_OPTS"]))
+    values.setdefault("ACTIVE", existing.get("ACTIVE", "1"))
+    values.setdefault("MODE", existing.get("MODE", "schedule"))
     write_kv_file(entry_path(vm), values,
                   f"# Конфигурация репликации ВМ {vm}", list(ENTRY_KEYS))
     out({"ok": True, "entry": read_entry(vm), "key": key_info(vm)})
@@ -804,9 +818,13 @@ def spawn_detached(argv, pidfile, logfile, extra_env=None):
     return proc.pid
 
 
-def cmd_run(vm=None):
+def cmd_run(vm=None, force=None):
     if not os.path.exists(REPLICATE):
         fail(f"{REPLICATE} not found — is the replication stack installed?")
+    if force is not None and force not in ("full", "incremental"):
+        fail(f"invalid copy type {force!r}")
+    if force and not vm:
+        fail("copy type requires --vm NAME")
     argv = [REPLICATE]
     if vm:
         if not VM_RE.match(vm):
@@ -814,7 +832,12 @@ def cmd_run(vm=None):
         if vm not in list_all_vms(read_defaults()):
             fail(f"VM {vm!r} does not exist")
         argv.append(vm)
-    pid = spawn_detached(argv, MANUAL_PID, MANUAL_LOG)
+        if force:
+            argv.append(f"--{force}")
+    # an explicit "run now" from the UI also runs MODE=manual VMs; the
+    # systemd timer path calls vm-replicate without this variable
+    pid = spawn_detached(argv, MANUAL_PID, MANUAL_LOG,
+                         extra_env={} if vm else {"VM_REPLICATE_MANUAL": "1"})
     out({"ok": True, "pid": pid})
 
 
@@ -942,8 +965,20 @@ def main():
     elif cmd == "key-delete":
         cmd_key_delete(_vm_arg(rest))
     elif cmd == "run":
+        rest = list(rest)
+        force = None
+        if "--full" in rest:
+            force = "full"
+            rest.remove("--full")
+        if "--incremental" in rest:
+            if force:
+                fail("use --full or --incremental, not both")
+            force = "incremental"
+            rest.remove("--incremental")
         vm = rest[1] if len(rest) >= 2 and rest[0] == "--vm" else None
-        cmd_run(vm)
+        if rest and not (len(rest) == 2 and rest[0] == "--vm"):
+            fail("usage: run [--vm NAME] [--full|--incremental]")
+        cmd_run(vm, force)
     elif cmd == "run-status":
         cmd_run_status()
     elif cmd == "restore-start":

@@ -16,10 +16,18 @@
   "Install them with": "请使用以下命令安装：",
   "from this project.": "（来自本项目）。",
   "unknown error": "未知错误",
-  "{n} sec ago": ["{n} 秒前"],
-  "{n} min ago": ["{n} 分钟前"],
-  "{n} h ago": ["{n} 小时前"],
-  "{n} d ago": ["{n} 天前"],
+  "{n} sec ago": [
+    "{n} 秒前"
+  ],
+  "{n} min ago": [
+    "{n} 分钟前"
+  ],
+  "{n} h ago": [
+    "{n} 小时前"
+  ],
+  "{n} d ago": [
+    "{n} 天前"
+  ],
   "vm-state\u0004running": "运行中",
   "vm-state\u0004shut off": "已关闭",
   "vm-state\u0004missing": "缺失",
@@ -30,7 +38,9 @@
   "Last replication of {name} failed ({time})": "{name} 的上次复制失败（{time}）",
   "Hourly replication timer is not active": "每小时复制定时器未启用",
   "Copies are only made on manual runs. Start the timer below or with": "仅在手动运行时创建副本。请在下方启动定时器，或使用",
-  "{n} configuration has no remote target — its copies stay on this host": ["{n} 个配置没有远程目标 — 其副本仅保留在本机"],
+  "{n} configuration has no remote target — its copies stay on this host": [
+    "{n} 个配置没有远程目标 — 其副本仅保留在本机"
+  ],
   "set a Remote target on the Configuration tab to mirror over rsync/ssh.": "请在“配置”选项卡中设置远程目标，以便通过 rsync/ssh 进行镜像。",
   "Replication job": "复制任务",
   "Hourly timer": "每小时定时器",
@@ -187,9 +197,21 @@
   "Flatten chain into:": "将链平铺到：",
   "Auto-refresh": "自动刷新",
   "Number of lines": "行数",
-  "{n} line": ["{n} 行"],
+  "{n} line": [
+    "{n} 行"
+  ],
   "Refresh": "刷新",
   "vm-replication journal": "vm-replication 日志",
   "Filter…": "过滤…",
-  "— no entries —": "— 暂无记录 —"
+  "— no entries —": "— 暂无记录 —",
+  "Active": "启用",
+  "Copy type for {name}": "{name} 的副本类型",
+  "Toggle replication for {name}": "启用或停用 {name} 的复制",
+  "Replication active": "启用复制",
+  "When off, this VM is skipped by both scheduled and manual runs.": "关闭后，计划任务和手动运行都会跳过此虚拟机。",
+  "Run mode": "运行方式",
+  "By schedule (hourly timer)": "按计划（每小时定时器）",
+  "Manual only — run with the button, as a full copy or an increment": "仅手动 — 通过按钮运行，选择完整副本或增量",
+  "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.": "每小时定时器会跳过“仅手动”模式的虚拟机；使用运行按钮或其菜单选择副本类型。",
+  "mode\u0004manual": "手动"
 }

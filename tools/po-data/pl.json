@@ -16,10 +16,26 @@
   "Install them with": "Zainstaluj je poleceniem",
   "from this project.": "z tego projektu.",
   "unknown error": "nieznany błąd",
-  "{n} sec ago": ["{n} sek. temu", "{n} sek. temu", "{n} sek. temu"],
-  "{n} min ago": ["{n} min temu", "{n} min temu", "{n} min temu"],
-  "{n} h ago": ["{n} godz. temu", "{n} godz. temu", "{n} godz. temu"],
-  "{n} d ago": ["{n} dni temu", "{n} dni temu", "{n} dni temu"],
+  "{n} sec ago": [
+    "{n} sek. temu",
+    "{n} sek. temu",
+    "{n} sek. temu"
+  ],
+  "{n} min ago": [
+    "{n} min temu",
+    "{n} min temu",
+    "{n} min temu"
+  ],
+  "{n} h ago": [
+    "{n} godz. temu",
+    "{n} godz. temu",
+    "{n} godz. temu"
+  ],
+  "{n} d ago": [
+    "{n} dni temu",
+    "{n} dni temu",
+    "{n} dni temu"
+  ],
   "vm-state\u0004running": "działa",
   "vm-state\u0004shut off": "wyłączona",
   "vm-state\u0004missing": "brak",
@@ -30,7 +46,11 @@
   "Last replication of {name} failed ({time})": "Ostatnia replikacja {name} nie powiodła się ({time})",
   "Hourly replication timer is not active": "Godzinowy timer replikacji nie jest aktywny",
   "Copies are only made on manual runs. Start the timer below or with": "Kopie są tworzone tylko przy ręcznym uruchomieniu. Uruchom timer poniżej lub poleceniem",
-  "{n} configuration has no remote target — its copies stay on this host": ["{n} konfiguracja nie ma zdalnej lokalizacji docelowej — jej kopie pozostają na tym hoście", "{n} konfiguracje nie mają zdalnej lokalizacji docelowej — ich kopie pozostają na tym hoście", "{n} konfiguracji nie ma zdalnej lokalizacji docelowej — ich kopie pozostają na tym hoście"],
+  "{n} configuration has no remote target — its copies stay on this host": [
+    "{n} konfiguracja nie ma zdalnej lokalizacji docelowej — jej kopie pozostają na tym hoście",
+    "{n} konfiguracje nie mają zdalnej lokalizacji docelowej — ich kopie pozostają na tym hoście",
+    "{n} konfiguracji nie ma zdalnej lokalizacji docelowej — ich kopie pozostają na tym hoście"
+  ],
   "set a Remote target on the Configuration tab to mirror over rsync/ssh.": "ustaw zdalną lokalizację docelową na karcie Konfiguracja, aby tworzyć lustro przez rsync/ssh.",
   "Replication job": "Zadanie replikacji",
   "Hourly timer": "Timer godzinowy",
@@ -187,9 +207,23 @@
   "Flatten chain into:": "Spłaszczyć łańcuch do:",
   "Auto-refresh": "Automatyczne odświeżanie",
   "Number of lines": "Liczba wierszy",
-  "{n} line": ["{n} wiersz", "{n} wiersze", "{n} wierszy"],
+  "{n} line": [
+    "{n} wiersz",
+    "{n} wiersze",
+    "{n} wierszy"
+  ],
   "Refresh": "Odśwież",
   "vm-replication journal": "Dziennik vm-replication",
   "Filter…": "Filtr…",
-  "— no entries —": "— brak wpisów —"
+  "— no entries —": "— brak wpisów —",
+  "Active": "Aktywna",
+  "Copy type for {name}": "Rodzaj kopii dla {name}",
+  "Toggle replication for {name}": "Włącz lub wyłącz replikację {name}",
+  "Replication active": "Replikacja aktywna",
+  "When off, this VM is skipped by both scheduled and manual runs.": "Gdy wyłączone, maszyna jest pomijana zarówno przy uruchomieniach planowych, jak i ręcznych.",
+  "Run mode": "Tryb uruchamiania",
+  "By schedule (hourly timer)": "Wg harmonogramu (godzinowy timer)",
+  "Manual only — run with the button, as a full copy or an increment": "Tylko ręcznie — uruchamianie przyciskiem, kopia pełna lub przyrost",
+  "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.": "Maszyny w trybie ręcznym pomija godzinowy timer; rodzaj kopii wybierz przyciskiem lub jego menu.",
+  "mode\u0004manual": "ręczny"
 }

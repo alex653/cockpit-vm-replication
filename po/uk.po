@@ -814,3 +814,44 @@ msgstr "Фільтр…"
 msgid "— no entries —"
 msgstr "— записів немає —"
 
+#: src/00-generated.po
+msgid "Active"
+msgstr "Активна"
+
+#: src/00-generated.po
+msgid "Copy type for {name}"
+msgstr "Тип копії для {name}"
+
+#: src/00-generated.po
+msgid "Toggle replication for {name}"
+msgstr "Увімкнути або вимкнути реплікацію {name}"
+
+#: src/00-generated.po
+msgid "Replication active"
+msgstr "Реплікація активна"
+
+#: src/00-generated.po
+msgid "When off, this VM is skipped by both scheduled and manual runs."
+msgstr "Якщо вимкнено, ВМ пропускається і під час запуску за розкладом, і під час ручного запуску."
+
+#: src/00-generated.po
+msgid "Run mode"
+msgstr "Режим запуску"
+
+#: src/00-generated.po
+msgid "By schedule (hourly timer)"
+msgstr "За розкладом (погодинний таймер)"
+
+#: src/00-generated.po
+msgid "Manual only — run with the button, as a full copy or an increment"
+msgstr "Тільки вручну — запуск кнопкою: повна копія або інкремент"
+
+#: src/00-generated.po
+msgid "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type."
+msgstr "ВМ у режимі «вручну» пропускаються погодинним таймером; тип копії обирається кнопкою запуску або її меню."
+
+#: src/00-generated.po
+msgctxt "mode"
+msgid "manual"
+msgstr "вручну"
+

@@ -3,11 +3,12 @@ import {
     ActionList, ActionListItem, Alert, Button, Card, CardBody, CardFooter,
     CardHeader, CardTitle, Content, ContentVariants, DescriptionList,
     DescriptionListDescription, DescriptionListGroup, DescriptionListTerm,
-    Flex, FlexItem, Label, Modal, ModalBody, ModalFooter, ModalHeader,
-    Progress, Spinner,
+    Dropdown, DropdownItem, DropdownList, Flex, FlexItem, Label, MenuToggle,
+    Modal, ModalBody, ModalFooter, ModalHeader,
+    Progress, Spinner, Switch,
 } from "@patternfly/react-core";
 import {
-    CheckCircleIcon, ExclamationCircleIcon, RedoIcon, SyncAltIcon,
+    CheckCircleIcon, EllipsisVIcon, ExclamationCircleIcon, RedoIcon, SyncAltIcon,
 } from "@patternfly/react-icons";
 import { errorMessage, fmtBytes, fmtDateTime, helper, timeAgo } from "../api.js";
 import { t, tc, tn } from "../i18n.js";
@@ -56,6 +57,66 @@ function runIcon(run) {
         <span className="pf-v6-u-text-color-success">
             <CheckCircleIcon /> {tc("run-status", "ok")}
         </span>
+    );
+}
+
+/* start a manual replication run: kind = null (auto) | "full" | "incremental" */
+export function runVM(vm, kind, { refresh, setActionError }) {
+    const args = ["--vm", vm];
+    if (kind) args.push(`--${kind}`);
+    helper("run", args)
+        .then(refresh)
+        .catch(e => setActionError(errorMessage(e)));
+}
+
+/* Run button + a small menu to force a full copy or an increment */
+export function RunMenu({ vm, label, isDisabled, onRun }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
+            <FlexItem>
+                <Button variant="secondary" size="sm" isDisabled={isDisabled}
+                    onClick={() => onRun(null)}>
+                    {label}
+                </Button>
+            </FlexItem>
+            <FlexItem>
+                <Dropdown
+                    isOpen={open}
+                    onOpenChange={setOpen}
+                    toggle={toggleRef => (
+                        <MenuToggle ref={toggleRef} variant="plain" size="sm"
+                            isDisabled={isDisabled}
+                            aria-label={t("Copy type for {name}", { name: vm })}
+                            onClick={() => setOpen(!open)}>
+                            <EllipsisVIcon />
+                        </MenuToggle>
+                    )}
+                >
+                    <DropdownList>
+                        <DropdownItem key="full" onClick={() => { setOpen(false); onRun("full"); }}>
+                            {t("full copy")}
+                        </DropdownItem>
+                        <DropdownItem key="incremental" onClick={() => { setOpen(false); onRun("incremental"); }}>
+                            {t("increment")}
+                        </DropdownItem>
+                    </DropdownList>
+                </Dropdown>
+            </FlexItem>
+        </Flex>
+    );
+}
+
+/* per-VM activity toggle (writes ACTIVE=0/1 into the profile) */
+export function ActivitySwitch({ vm, active, isDisabled, onChange }) {
+    return (
+        <Switch
+            id={`activity-${vm}`}
+            aria-label={t("Toggle replication for {name}", { name: vm })}
+            isChecked={active}
+            isDisabled={isDisabled}
+            onChange={(_e, v) => onChange(v)}
+        />
     );
 }
 
@@ -260,6 +321,7 @@ export function Overview() {
                                     <th>{t("VM")}</th>
                                     <th>{t("State")}</th>
                                     <th>{t("In config")}</th>
+                                    <th>{t("Active")}</th>
                                     <th>{t("Remote")}</th>
                                     <th>{t("Active chain")}</th>
                                     <th>{t("Increments")}</th>
@@ -272,10 +334,15 @@ export function Overview() {
                             </thead>
                             <tbody>
                                 {status.vms.length === 0 && (
-                                    <tr><td colSpan={11}>{t("No replicated VMs yet — add some on the Configuration tab.")}</td></tr>
+                                    <tr><td colSpan={12}>{t("No replicated VMs yet — add some on the Configuration tab.")}</td></tr>
                                 )}
                                 {status.vms.map(vm => {
                                     const active = vm.chains.find(c => c.name === vm.active_chain);
+                                    const isActive = vm.config?.ACTIVE !== "0";
+                                    const toggleActivity = on =>
+                                        helper("entry-save", [], JSON.stringify({ vm: vm.name, active: on ? 1 : 0 }))
+                                            .then(refresh)
+                                            .catch(e => setActionError(errorMessage(e)));
                                     return (
                                         <tr key={vm.name}>
                                             <td><strong>{vm.name}</strong></td>
@@ -283,6 +350,11 @@ export function Overview() {
                                             <td>{vm.in_config
                                                 ? <Label color="green">{t("yes")}</Label>
                                                 : <Label color="orange">{t("no")}</Label>}</td>
+                                            <td>
+                                                <ActivitySwitch vm={vm.name} active={isActive}
+                                                    isDisabled={status.busy}
+                                                    onChange={toggleActivity} />
+                                            </td>
                                             <td>
                                                 {vm.config?.REMOTE_TARGET
                                                     ? <span title={vm.config.REMOTE_TARGET}>{vm.config.REMOTE_TARGET.split(":")[0]}</span>
@@ -310,16 +382,9 @@ export function Overview() {
                                             </td>
                                             <td>{runIcon(vm.last_run)}</td>
                                             <td>
-                                                <Button
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    isDisabled={status.busy || vm.state !== "running"}
-                                                    onClick={() => helper("run", ["--vm", vm.name])
-                                                        .then(refresh)
-                                                        .catch(e => setActionError(errorMessage(e)))}
-                                                >
-                                                    {t("Run")}
-                                                </Button>
+                                                <RunMenu vm={vm.name} label={t("Run")}
+                                                    isDisabled={status.busy || vm.state !== "running" || !isActive}
+                                                    onRun={kind => runVM(vm.name, kind, { refresh, setActionError })} />
                                             </td>
                                         </tr>
                                     );

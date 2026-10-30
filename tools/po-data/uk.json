@@ -16,10 +16,26 @@
   "Install them with": "Встановіть їх командою",
   "from this project.": "з каталогу цього проєкту.",
   "unknown error": "невідома помилка",
-  "{n} sec ago": ["{n} сек. тому", "{n} сек. тому", "{n} сек. тому"],
-  "{n} min ago": ["{n} хв. тому", "{n} хв. тому", "{n} хв. тому"],
-  "{n} h ago": ["{n} год. тому", "{n} год. тому", "{n} год. тому"],
-  "{n} d ago": ["{n} дн. тому", "{n} дн. тому", "{n} дн. тому"],
+  "{n} sec ago": [
+    "{n} сек. тому",
+    "{n} сек. тому",
+    "{n} сек. тому"
+  ],
+  "{n} min ago": [
+    "{n} хв. тому",
+    "{n} хв. тому",
+    "{n} хв. тому"
+  ],
+  "{n} h ago": [
+    "{n} год. тому",
+    "{n} год. тому",
+    "{n} год. тому"
+  ],
+  "{n} d ago": [
+    "{n} дн. тому",
+    "{n} дн. тому",
+    "{n} дн. тому"
+  ],
   "vm-state\u0004running": "працює",
   "vm-state\u0004shut off": "вимкнена",
   "vm-state\u0004missing": "відсутня",
@@ -30,7 +46,11 @@
   "Last replication of {name} failed ({time})": "Остання реплікація {name} завершилася помилкою ({time})",
   "Hourly replication timer is not active": "Погодинний таймер реплікації не активний",
   "Copies are only made on manual runs. Start the timer below or with": "Копії створюються лише під час ручного запуску. Запустіть таймер нижче або командою",
-  "{n} configuration has no remote target — its copies stay on this host": ["У {n} конфігурації немає віддаленої цілі — її копії залишаються на цьому вузлі", "У {n} конфігурацій немає віддаленої цілі — їхні копії залишаються на цьому вузлі", "У {n} конфігурацій немає віддаленої цілі — їхні копії залишаються на цьому вузлі"],
+  "{n} configuration has no remote target — its copies stay on this host": [
+    "У {n} конфігурації немає віддаленої цілі — її копії залишаються на цьому вузлі",
+    "У {n} конфігурацій немає віддаленої цілі — їхні копії залишаються на цьому вузлі",
+    "У {n} конфігурацій немає віддаленої цілі — їхні копії залишаються на цьому вузлі"
+  ],
   "set a Remote target on the Configuration tab to mirror over rsync/ssh.": "задайте «Віддалену ціль» на вкладці «Налаштування», щоб дзеркалити копії через rsync/ssh.",
   "Replication job": "Завдання реплікації",
   "Hourly timer": "Погодинний таймер",
@@ -187,9 +207,23 @@
   "Flatten chain into:": "Звести ланцюжок у:",
   "Auto-refresh": "Автооновлення",
   "Number of lines": "Кількість рядків",
-  "{n} line": ["{n} рядок", "{n} рядки", "{n} рядків"],
+  "{n} line": [
+    "{n} рядок",
+    "{n} рядки",
+    "{n} рядків"
+  ],
   "Refresh": "Оновити",
   "vm-replication journal": "Журнал vm-replication",
   "Filter…": "Фільтр…",
-  "— no entries —": "— записів немає —"
+  "— no entries —": "— записів немає —",
+  "Active": "Активна",
+  "Copy type for {name}": "Тип копії для {name}",
+  "Toggle replication for {name}": "Увімкнути або вимкнути реплікацію {name}",
+  "Replication active": "Реплікація активна",
+  "When off, this VM is skipped by both scheduled and manual runs.": "Якщо вимкнено, ВМ пропускається і під час запуску за розкладом, і під час ручного запуску.",
+  "Run mode": "Режим запуску",
+  "By schedule (hourly timer)": "За розкладом (погодинний таймер)",
+  "Manual only — run with the button, as a full copy or an increment": "Тільки вручну — запуск кнопкою: повна копія або інкремент",
+  "Manual-only VMs are skipped by the hourly timer; use the Run button or its menu to choose the copy type.": "ВМ у режимі «вручну» пропускаються погодинним таймером; тип копії обирається кнопкою запуску або її меню.",
+  "mode\u0004manual": "вручну"
 }
