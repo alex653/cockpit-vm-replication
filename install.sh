@@ -75,8 +75,8 @@ if [ "$ACTION" = install ] && [ "$need_fetch" != 1 ]; then
         ver=${BRANCH_TAG#v}
     else
         api=https://api.github.com/repos/$REPO/releases/latest
-        ver=$(dl "$api" - 2>/dev/null | true; dl "$api" /tmp/.vmr-rel.json && \
-              sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' /tmp/.vmr-rel.json | head -n1) || ver=
+        dl "$api" /tmp/.vmr-rel.json 2>/dev/null || die "не удалось получить список релизов (проверьте сеть)"
+        ver=$(sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' /tmp/.vmr-rel.json | head -n1)
         [ -n "$ver" ] || die "не удалось определить последний релиз; укажите --version vX.Y.Z"
     fi
     tmp=$(mktemp -d)
