@@ -49,6 +49,22 @@ rotation policy and SSH key. The Cockpit UI gives you:
 
 ## Install
 
+One line, any distro with Cockpit support (Debian/Ubuntu, RHEL/Fedora/Rocky/Alma,
+openSUSE, Arch) — downloads the latest release with the **prebuilt UI**, so no
+Node.js/npm is needed on the target host:
+
+```bash
+curl -fsSL https://github.com/alex653/cockpit-vm-replication/releases/latest/download/install.sh | sudo bash
+```
+
+The installer detects the distribution, installs missing packages
+(`cockpit`, `python3`, `rsync`, `openssh`, …) through the native package
+manager, then drops in the UI, the privileged helper, the scripts, the
+sudoers rule and the systemd timer. From an unpacked release tarball it
+works offline too: just run `sudo ./install.sh` inside.
+
+Developer path (build from source):
+
 ```bash
 git clone https://github.com/alex653/cockpit-vm-replication.git
 cd cockpit-vm-replication

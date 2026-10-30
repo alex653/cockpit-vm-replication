@@ -51,13 +51,28 @@
 
 ## Установка
 
+Одна команда для любого дистрибутива с поддержкой Cockpit (Debian/Ubuntu,
+RHEL/Fedora/Rocky/Alma, openSUSE, Arch) — установщик скачивает последний
+релиз с **готовой сборкой UI**, поэтому Node.js/npm на целевом узле не нужны:
+
+```bash
+curl -fsSL https://github.com/alex653/cockpit-vm-replication/releases/latest/download/install.sh | sudo bash
+```
+
+Установщик определяет дистрибутив, ставит недостающие пакеты (`cockpit`,
+`python3`, `rsync`, `openssh`, …) штатным пакетным менеджером, затем
+размещает UI, привилегированный хелпер, скрипты, sudoers-правило и systemd-таймер.
+Из распакованного tarball релиза работает и офлайн: просто выполните
+`sudo ./install.sh` внутри каталога.
+
+Сборка из исходников (для разработки):
+
 ```bash
 git clone https://github.com/alex653/cockpit-vm-replication.git
 cd cockpit-vm-replication
 npm install          # инструменты сборки (нужен nodejs ≥ 18)
 sudo make install
 ```
-
 `make install` делает следующее:
 
 1. интерфейс → `/usr/share/cockpit/vm-replication/`

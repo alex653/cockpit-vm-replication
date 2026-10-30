@@ -113,5 +113,5 @@ clean:
 dist: build
 	tar --transform "s,^,cockpit-vm-replication-$(VERSION)/," \
 	    -czf cockpit-vm-replication-$(VERSION).tar.gz \
-	    dist helper scripts tools po Makefile esbuild.mjs README.md README.ru.md LICENSE package.json
+	    dist helper scripts tools po install.sh Makefile esbuild.mjs README.md README.ru.md LICENSE package.json
 	@echo "Created cockpit-vm-replication-$(VERSION).tar.gz"
